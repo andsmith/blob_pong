@@ -14,18 +14,15 @@ class VelocityField(object):
     The vertical components are defined at the midpoints of horizontal boundaries.
     """
 
-    def __init__(self, size_m, n_cells_x):
-        """
-        Keep dx and dy the same (if the height is not a multiple of the horizontal cell size,
-        it will be increased to the next multiple).
-        :param size_m: the size of the simulation domain in meters (width, height).
-        :param scale: the number of cells per meter.
-        """
+    def __init__(self, size_m, grid_size):
+        self.n_cells = grid_size
+        self.dx = size_m[0] / grid_size[0]  # dy is the same
+        self.size = size_m
 
-        n_cells_y = int(np.ceil(n_cells_x * (size_m[1] / size_m[0])))
-        self.n_cells = n_cells_x, n_cells_y
-        self.dx = size_m[0] / n_cells_x  # dy is the same
-        self.size = size_m[0], self.dx * n_cells_y  # size of the simulation domain in meters (width, height).
+        # Check that the grid size is valid:
+        dy= (size_m[1] / grid_size[1])
+        if (np.abs(self.dx - dy) > 1e-10):
+            raise ValueError("Grid size is not valid. dx and dy must be equal.")
         logging.info("Initializing Velocity grid %i x %i (dx = %.3f m) spanning (%.3f, %.3f) meters."
                      % (self.n_cells[0], self.n_cells[1], self.dx, self.size[0], self.size[1]))
         self._init_grids()

@@ -1,2 +1,3 @@
 # blob_pong
-Generalization of pong for arbitrary ball viscosities.
+Generalization of Pong for arbitrary ball viscosities.
+
