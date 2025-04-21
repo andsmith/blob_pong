@@ -38,10 +38,10 @@ class SmokeField(FluidField):
         :param radius: The radius of the sphere in world coordinates.
         :param density: The density value to set.
         """
-        center = np.array(center).reshape(1, 1, 2)
+        center = np.array(center).reshape(1, 1, 2) * self.size  # convert to grid coordinates
         points = self._get_cell_centers()
         distances = np.linalg.norm(points - center, axis=2)
-        inside = np.where(distances < radius)
+        inside = np.where(distances < radius*self.size[0])
         self.values[inside] = density
         self.finalize()
 

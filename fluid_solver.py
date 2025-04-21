@@ -90,7 +90,7 @@ class Simulator(object):
         while True:
 
             self.plot_step(ax, dt)
-            plt.pause(.25)
+            plt.pause(.1)
             plt.cla()
             plt.xlim(0, self._size[0])
             plt.ylim(0, self._size[1])
@@ -105,12 +105,12 @@ class Simulator(object):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    size_m = (1.0, 1.0)
+    size_m = (100.0, 100.0)
     n_cells_x_vel = 15  # Number of velocity cells in the x direction.
     fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
-    dt = 0.01  # Time step for the simulation.
+    dt = 0.02  # Time step for the simulation.
     sim.animate(dt)
     while True:
         sim.plot_step(plt.gca(), dt)

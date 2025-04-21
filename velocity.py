@@ -162,9 +162,36 @@ class VelocityField(InterpField):
         ax.set_title('Velocity field, free-slip BCs\n(boundary normal v = 0)')
 
 
+
+def test_velocity():
+    # Create a random 10x10 velocity field, verify boundary condition.  
+    size_m = (1.0, 1.0)
+    grid_size = (10, 10)
+    dx = .1
+    vel = VelocityField(size_m, grid_size)
+    vel.randomize(scale=1.0)
+    #vel.enforce_free_slip()
+    t = np.linspace(0, 1.0, 100)
+    zero_v = np.zeros(t.shape)
+    min_coord = np.zeros(t.shape)
+    max_coord = np.ones(t.shape) * size_m[0]  # 1.0 m
+
+    vals = vel.interp_at(np.stack((t, min_coord), axis=-1)) # vertical velocity at the bottom
+    assert np.all(np.isclose(vals[:, 1], zero_v))  # y must be zero
+    vals = vel.interp_at(np.stack((min_coord, t), axis=-1))# # horizontal velocity at the left edge
+    assert np.all(np.isclose(vals[:, 0], zero_v)) # x must be zero
+    
+    vals = vel.interp_at(np.stack((t, max_coord), axis=-1))  # vertical velocity at the top
+    assert np.all(np.isclose(vals[:, 1], zero_v)) #  y must be 0.0
+    vals = vel.interp_at(np.stack((max_coord, t), axis=-1))  # horizontal velocity at the right edge
+    assert np.all(np.isclose(vals[:, 0], zero_v))    #
+    
+
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-
+    test_velocity()
     vf = VelocityField((1.0, 1.0), (6, 6))
     vf.randomize(scale=0.5)
     fig, ax = plt.subplots()
