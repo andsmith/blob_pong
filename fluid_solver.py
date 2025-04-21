@@ -37,8 +37,11 @@ class Simulator(object):
         _, fluid_grid_size, _ = scale_y(size_m, n_cells_x_vel * fluid_cell_mult)
 
         self._vel = VelocityField(size_m, vel_grid_size)
+        self._vel.randomize(scale=3)
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
+        
+        self._colorbar = None
 
     #@jit
     def pixel_to_world(self, coords):
@@ -61,15 +64,60 @@ class Simulator(object):
         x, y = coords[:, 0], coords[:, 1]
         p_coords = (x / self._dims[0]) * self._size[0], (y / self._dims[1]) * self._size[1]
         return np.array(p_coords).T
+    
+    def plot_step(self, ax, dt):
+        # Advance simulation and plot result (velocity, pressure, and fluid).
+        self._fluid.advect(self._vel, dt, plot_ax=None)
+        self._vel.plot_grid(ax)
+        self._vel.plot_velocities(ax, show_faces=False,show_field=True, res=100)
+        #img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
+        img_artist = self._fluid.plot(ax, alpha=0.6,res=200)
 
+        if self._colorbar is None:
+            # Create colorbar only once
+            self._colorbar = plt.colorbar(img_artist, ax=ax, shrink=0.8)
+            self._colorbar.set_label("Density")
+        else:
+            self._colorbar.update_normal(img_artist)
+            
+        
+        
+        
+            
+    def animate(self, dt):
+        plt.ion()
+        fig, ax = plt.subplots()
+        while True:
+
+            self.plot_step(ax, dt)
+            plt.pause(.25)
+            plt.cla()
+            plt.xlim(0, self._size[0])
+            plt.ylim(0, self._size[1])
+            plt.gca().set_aspect('equal', adjustable='box')
+            plt.title("Fluid Simulation")
+            plt.draw()
+        plt.ioff()
+
+    def add_smoke(self):
+        self._fluid.add_sphere((0.5, 0.5), 0.16, 10.0)  # Add a smoke source at the center of the domain.
+        #self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     size_m = (1.0, 1.0)
-    n_cells_x_vel = 10
-    fluid_cell_mult = 3
+    n_cells_x_vel = 15  # Number of velocity cells in the x direction.
+    fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
-    sim._pressure.plot(plt.gca())
-    sim._vel.plot_grid(plt.gca())
-    sim._vel.plot_velocities(plt.gca())
-    plt.show()
+    sim.add_smoke()
+    dt = 0.01  # Time step for the simulation.
+    sim.animate(dt)
+    while True:
+        sim.plot_step(plt.gca(), dt)
+        plt.show()
+
+
+    #sim._pressure.plot(plt.gca())
+    #sim._vel.plot_grid(plt.gca())
+    #sim._vel.plot_velocities(plt.gca())
+    #plt.show()

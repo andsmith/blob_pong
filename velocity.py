@@ -6,7 +6,7 @@ import cv2
 from interpolation import Interp2d
 import logging
 
-from util import InterpField
+from fields import InterpField
 
 
 class VelocityField(InterpField):
@@ -28,7 +28,7 @@ class VelocityField(InterpField):
     def _interp_at(self, points):
         h_vel = self._interp['horiz'].interpolate(points)
         v_vel = self._interp['vert'].interpolate(points)
-        vel = np.stack((h_vel, v_vel), axis=1)
+        vel = np.stack((h_vel, v_vel), axis=-1)
         return vel
 
     def finalize(self):
@@ -72,9 +72,33 @@ class VelocityField(InterpField):
         # Horizontal and vertical velocities (stored in numpy order):
         self.v_vel = np.zeros((self.n_cells[1] + 1, self.n_cells[0]), dtype=np.float32)
         self.h_vel = np.zeros((self.n_cells[1], self.n_cells[0] + 1), dtype=np.float32)
-        if True:
-            self.v_vel += np.random.randn(self.n_cells[1] + 1, self.n_cells[0]) * .1
-            self.h_vel += np.random.randn(self.n_cells[1], self.n_cells[0] + 1) * .1
+
+    def randomize(self, scale=1.0):
+
+        self.v_vel += self._rng.normal(0, scale, self.v_vel.shape)
+        self.h_vel += self._rng.normal(0, scale, self.h_vel.shape)
+        self.finalize()
+
+    def get_cfl(self, dt, dx, C=0.5):
+        """
+        We need to step dt forward, but that might be too big.
+
+        Break it into N steps of length dt_sub, where:
+
+           dt_sub <= C * dx / max(|u| + |v|)
+
+        and N * dt_sub = dt.
+
+        :param dt: The time step to use for advection.
+        :param dx: The grid spacing.
+        :param C: The CFL number.  Default is 0.5.
+        :return: The CFL condition.
+        """
+        max_vel = np.max(np.abs(self.v_vel)) + np.max(np.abs(self.h_vel))
+        dt_sub = C * dx / max_vel
+        n_iter = int(np.ceil(dt / dt_sub))
+        dt_sub = dt / n_iter
+        return dt_sub, n_iter
 
     def plot_grid(self, ax):
         """
@@ -98,7 +122,7 @@ class VelocityField(InterpField):
             Show as arrows on each face
             """
             vel_h, vel_v = vel * direction[0], vel * direction[1]
-            print(label, x_coords.shape, y_coords.shape, vel.shape)
+
             ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,
                       scale_units='xy', angles='xy', width=0.005, headwidth=3, headlength=5)
             ax.set_aspect('equal')
@@ -118,7 +142,6 @@ class VelocityField(InterpField):
             x_coords = x_coords.flatten()
             y_coords = y_coords.flatten()
             vel = self.interp_at(np.array([x_coords, y_coords]).T)
-            print(np.mean(vel, axis=0))
 
             # plot as a vector field
             vel_h, vel_v = vel[:, 0], vel[:, 1]
@@ -127,7 +150,7 @@ class VelocityField(InterpField):
             x_coords = x_coords.reshape((y_res, x_res))
             y_coords = y_coords.reshape((y_res, x_res))
             ax.quiver(x_coords, y_coords, vel_h, vel_v, color='k', scale_units='xy', angles='xy',
-                      width=0.005, headwidth=3, headlength=4)
+                      width=0.0025, headwidth=2.5, headlength=3.5)
             ax.set_aspect('equal')
 
         if show_faces:
@@ -141,9 +164,10 @@ class VelocityField(InterpField):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+
     vf = VelocityField((1.0, 1.0), (6, 6))
+    vf.randomize(scale=0.5)
     fig, ax = plt.subplots()
     vf.plot_grid(ax)
-    vf.plot_velocities(ax, res=50, show_faces=True, show_field=True)
+    vf.plot_velocities(ax, res=30, show_faces=True, show_field=True)
     plt.show()

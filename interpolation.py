@@ -73,9 +73,9 @@ class Interp2d(object):
         Interpolate the values at the given points.
         If out of bounds, clip to bounds
         """
-        points = np.array(points).reshape(-1, 2)
-        x = points[:, 0]
-        y = points[:, 1]
+        points = np.array(points)
+        x = points[..., 0]
+        y = points[..., 1]
         i0, j0 = self.upper_left_inds(x, y)
         i1 = i0 + 1
         j1 = j0 + 1
