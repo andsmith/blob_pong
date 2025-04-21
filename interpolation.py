@@ -68,7 +68,7 @@ class Interp2d(object):
         j0 = np.floor((y - self.p_min[1]) / self.dp).astype(int)
         return i0, j0
 
-    def interp(self, points):
+    def interpolate(self, points):
         """
         Interpolate the values at the given points.
         If out of bounds, clip to bounds
@@ -127,7 +127,7 @@ def test_interp_free(plot=False):
         test_point = test['point']
         expected_value = test['value']
 
-        interp_value = interp_test.interp(test_point)[0]
+        interp_value = interp_test.interpolate(test_point)[0]
         control_value = inter_ctrl(test_point[0], test_point[1], grid=False)
         print("Test point: %s, Expected value: %.3f, Interpolated value:%.3f, Control value:%.3f" %
               (test_point, expected_value, interp_value, control_value))
@@ -141,11 +141,10 @@ def test_interp_free(plot=False):
         y_lim = y.min(), y.max()-1e-8
         x = np.linspace(x_lim[0], x_lim[1], 200)
         y = np.linspace(y_lim[0], y_lim[1], 200)
-        print(x.shape, y.shape, z.shape)
         test_x, test_y = np.meshgrid(x, y)
         img_ctrl = inter_ctrl(test_x, test_y, grid=False)
         coords = np.array((test_x.flatten(), test_y.flatten())).T
-        img_test = interp_test.interp(coords)
+        img_test = interp_test.interpolate(coords)
         img_test = img_test.reshape(test_x.shape)
         fig, ax = plt.subplots(ncols=2, nrows=2)
         ax = ax.flatten()
@@ -195,7 +194,7 @@ def test_interp_free2(plot=False):
 
     for test_point in test_points:
         control_value = interp_control(test_point[0], test_point[1], grid=False)
-        interp_value = interp_test.interp(test_point)
+        interp_value = interp_test.interpolate(test_point)
         print(f"Test point: {test_point}, Interpolated value: {interp_value}, Control value: {control_value}")
         assert np.isclose(interp_value, control_value), f"Interpolation=?=control failed for point {test_point}"
 
@@ -210,7 +209,6 @@ def test_interp_free2(plot=False):
         p0 = (x[0], y[0])
         x, y = np.meshgrid(x_coords, y_coords)
         vals = np.sin(x*20) + np.cos(15*y)
-        # print(vals.shape,x.shape,y.shape)
         interp_test = Interp2d(p0, dx, size=None, value=vals)
         control_test = RectBivariateSpline(x_coords, y_coords, vals.T, kx=1, ky=1)
 
@@ -226,7 +224,7 @@ def test_interp_free2(plot=False):
         y_test = y_test.reshape(-1)
 
         # interpolate the image and a bit of the margin outside to see the boundary conditions.
-        interp_img = interp_test.interp(np.stack((x_test, y_test), axis=-1)).reshape(ny_test, nx_test)
+        interp_img = interp_test.interpolate(np.stack((x_test, y_test), axis=-1)).reshape(ny_test, nx_test)
         interp_img_control = control_test(x_test, y_test, grid=False).reshape(ny_test, nx_test)
 
         fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(10, 10))
@@ -270,7 +268,7 @@ def _trial(image, n_interp, n_test_points, interpolator):
     trial_start = time.perf_counter()
     for iter in range(n_interp):
         test_points = np.random.rand(n_test_points, 2) * image_size
-        interp_vals = interp_test.interp(test_points)
+        interp_vals = interp_test.interpolate(test_points)
         now = time.perf_counter()
         times['t_interp'] += (now - t_start)
         t_start = now
@@ -326,5 +324,5 @@ def speed_test(image_size=(640, 480), n_trials=100, n_interp=20,interpolator=Int
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    speed_test()
-    #test_interp_free2(plot=True)
+    #speed_test()
+    test_interp_free2(plot=True)

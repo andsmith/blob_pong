@@ -54,5 +54,5 @@ class Interp2d:
         )
         return interp_values
 
-    def interp(self, points):
+    def interpolate(self, points):
         return self._interp_jit(points, self.values, self.p_min, self.dp, self.size)
