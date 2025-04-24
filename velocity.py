@@ -5,8 +5,45 @@ import matplotlib.pyplot as plt
 import cv2
 from interpolation import Interp2d
 import logging
-
+from semi_lagrange import advect
 from fields import InterpField
+
+
+class DeltaV(object):
+    """
+    Fast to create and update, but doesn't interpolate.
+    """
+
+    def __init__(self, grid_size):
+        self.h_vel = np.zeros((grid_size[1], grid_size[0] + 1))  # horizontal components, defined at centers of verical faces
+        self.v_vel = np.zeros((grid_size[1] + 1, grid_size[0]))  # vertical components, defined at centers of horizontal faces
+
+    @staticmethod
+    def from_gravity(grid_size, dt):
+        """
+        Create a delta velocity field from gravity.
+        :param grid_size: The number of cells in the x and y direction for the velocity field.
+        :param dt: The time step size.
+        :return: A DeltaV object with the delta velocities.
+        """
+        g = 9.81
+        delta_v = DeltaV(grid_size)
+        delta_v.h_vel[:, :] = 0.0
+        delta_v.v_vel[:, :] = -g * dt
+        return delta_v
+
+    def __sum__(self, other):
+        """
+        Add two DeltaV objects together.
+        :param other: The other DeltaV object to add.
+        :return: A new DeltaV object with the sum of the two delta velocities.
+        """
+        if self.h_vel.shape != other.h_vel.shape or self.v_vel.shape != other.v_vel.shape:
+            raise ValueError("DeltaV objects must have the same shape.")
+        new_delta_v = DeltaV(self.h_vel.shape)
+        new_delta_v.h_vel = self.h_vel + other.h_vel
+        new_delta_v.v_vel = self.v_vel + other.v_vel
+        return new_delta_v
 
 
 class VelocityField(InterpField):
@@ -25,6 +62,17 @@ class VelocityField(InterpField):
 
         self.finalize()
 
+    def add(self, delta_v):
+        """
+        Add a delta velocity field to the current velocity field.
+        :param delta_v: The delta velocity field to add.
+        """
+        if self.h_vel.shape != delta_v.h_vel.shape or self.v_vel.shape != delta_v.v_vel.shape:
+            raise ValueError("DeltaV objects must have the same shape.")
+        self.h_vel += delta_v.h_vel
+        self.v_vel += delta_v.v_vel
+        self.mark_dirty()
+
     def _interp_at(self, points):
         h_vel = self._interp['horiz'].interpolate(points)
         v_vel = self._interp['vert'].interpolate(points)
@@ -33,6 +81,7 @@ class VelocityField(InterpField):
 
     def finalize(self):
         self.enforce_free_slip()
+        #import ipdb; ipdb.set_trace()
         super().finalize()
 
     def _get_interp(self):
@@ -69,9 +118,12 @@ class VelocityField(InterpField):
         self.v_x = np.linspace(0.0, self.size[0], self.n_cells[0] + 1)[:-1] + 0.5 * (self.size[0] / self.n_cells[0])
         self.v_y = np.linspace(0.0, self.size[1], self.n_cells[1] + 1)
 
+        self._h_points = np.stack(np.meshgrid(self.h_x, self.h_y),axis=-1)
+        self._v_points = np.stack(np.meshgrid(self.v_x, self.v_y),axis=-1)
+
         # Horizontal and vertical velocities (stored in numpy order):
-        self.v_vel = np.zeros((self.n_cells[1] + 1, self.n_cells[0]), dtype=np.float32)
-        self.h_vel = np.zeros((self.n_cells[1], self.n_cells[0] + 1), dtype=np.float32)
+        self.v_vel = np.zeros((self.n_cells[1] + 1, self.n_cells[0]))
+        self.h_vel = np.zeros((self.n_cells[1], self.n_cells[0] + 1))
 
     def randomize(self, scale=1.0):
 
@@ -99,6 +151,34 @@ class VelocityField(InterpField):
         n_iter = int(np.ceil(dt / dt_sub))
         dt_sub = dt / n_iter
         return dt_sub, n_iter
+
+    def advect(self, dt, fluid=None):
+        """
+        Approximate the momentum term of the Navier Stokes equation using semi-lagrangian advection.
+        For each grid point, find the new velocity by moving the point backwards through the
+        velocity field for a time step dt. Then interpolate the velocity at the new position.
+
+        :param dt: The time step to use for advection.
+        :param fluid: The fluid field to advect.  (Not used for gasses, TODO.)
+        """
+        def _get_v_at_pos(points):
+            points_back = advect(points, self, dt, self.dx, self.size)
+            return self.interp_at(points_back)
+
+        h_vel = _get_v_at_pos(self._h_points)
+        v_vel = _get_v_at_pos(self._v_points)
+        self.h_vel = h_vel[:,:, 0]
+        self.v_vel = v_vel[:,:, 1]
+        self.finalize()
+
+    def diffuse(self, dt, fluid=None):
+        """
+        Diffuse the velocity field using a simple diffusion equation.
+        :param dt: The time step to use for diffusion.
+        :param fluid: The fluid field to diffuse.  (Not used for gasses, TODO.)
+        """
+        pass
+
 
     def plot_grid(self, ax):
         """
@@ -162,31 +242,28 @@ class VelocityField(InterpField):
         ax.set_title('Velocity field, free-slip BCs\n(boundary normal v = 0)')
 
 
-
 def test_velocity():
-    # Create a random 10x10 velocity field, verify boundary condition.  
+    # Create a random 10x10 velocity field, verify boundary condition.
     size_m = (1.0, 1.0)
     grid_size = (10, 10)
     dx = .1
     vel = VelocityField(size_m, grid_size)
     vel.randomize(scale=1.0)
-    #vel.enforce_free_slip()
+    # vel.enforce_free_slip()
     t = np.linspace(0, 1.0, 100)
     zero_v = np.zeros(t.shape)
     min_coord = np.zeros(t.shape)
     max_coord = np.ones(t.shape) * size_m[0]  # 1.0 m
 
-    vals = vel.interp_at(np.stack((t, min_coord), axis=-1)) # vertical velocity at the bottom
+    vals = vel.interp_at(np.stack((t, min_coord), axis=-1))  # vertical velocity at the bottom
     assert np.all(np.isclose(vals[:, 1], zero_v))  # y must be zero
-    vals = vel.interp_at(np.stack((min_coord, t), axis=-1))# # horizontal velocity at the left edge
-    assert np.all(np.isclose(vals[:, 0], zero_v)) # x must be zero
-    
+    vals = vel.interp_at(np.stack((min_coord, t), axis=-1))  # horizontal velocity at the left edge
+    assert np.all(np.isclose(vals[:, 0], zero_v))  # x must be zero
+
     vals = vel.interp_at(np.stack((t, max_coord), axis=-1))  # vertical velocity at the top
-    assert np.all(np.isclose(vals[:, 1], zero_v)) #  y must be 0.0
+    assert np.all(np.isclose(vals[:, 1], zero_v))  # y must be 0.0
     vals = vel.interp_at(np.stack((max_coord, t), axis=-1))  # horizontal velocity at the right edge
     assert np.all(np.isclose(vals[:, 0], zero_v))    #
-    
-
 
 
 if __name__ == "__main__":

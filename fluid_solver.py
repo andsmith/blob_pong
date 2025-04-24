@@ -1,13 +1,14 @@
-#from jax import numpy as jnp
-#from jax import random, grad, jit, vmap
+# from jax import numpy as jnp
+# from jax import random, grad, jit, vmap
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
-from velocity import VelocityField
+from velocity import VelocityField, DeltaV
 from pressure import PressureField
-from fluid import SmokeField #, LiquidField
+from fluid import SmokeField  # , LiquidField
 from util import scale_y
 import logging
+
 
 class Simulator(object):
     """
@@ -40,10 +41,10 @@ class Simulator(object):
         self._vel.randomize(scale=3)
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
-        
+
         self._colorbar = None
 
-    #@jit
+    # @jit
     def pixel_to_world(self, coords):
         """
         Convert pixel coordinates to world coordinates.
@@ -54,7 +55,7 @@ class Simulator(object):
         w_coords = (x / self._size[0]) * self._dims[0], (y / self._size[1]) * self._dims[1]
         return np.array(w_coords).T
 
-    #@jit
+    # @jit
     def world_to_pixel(self, coords):
         """
         Convert world coordinates to pixel coordinates.
@@ -65,13 +66,40 @@ class Simulator(object):
         p_coords = (x / self._dims[0]) * self._size[0], (y / self._dims[1]) * self._size[1]
         return np.array(p_coords).T
     
+    def tick(self, dt):
+        """
+        Perform a simulation step:
+          a) Update velocity & pressure field by dt using the Navier Stokes equations.
+            1. External forces: gravity, buoyancy, etc.
+            2. Momentum/advection term:  advect the velocity field using the current velocity field.
+            3. TODO: Viscosity: Evaluate the stress tensor, compute viscous forces, add to velocity field.
+            4. Pressure projection:  find the pressure field so the velocity field is divergence free.
+          b) Advect the fluid for time dt using the new velocity field.
+        """
+        # a) Update velocity
+        #delva_v = self._get_external_forces(dt)
+        #self._vel.advect(dt)
+        self._vel.diffuse(dt)
+        WRITE THESE TWO:
+        #self._pressure.set_incompressible(self._vel, dt, self._fluid)
+        #self._vel.project(self._pressure, dt)
+
+        # b) Move the fluid along the velocity field:
+        self._fluid.advect(self._vel, dt)
+
+    def _get_external_forces(self, dt):
+        return DeltaV.from_gravity(self._vel.n_cells, dt) 
+    
+
     def plot_step(self, ax, dt):
-        # Advance simulation and plot result (velocity, pressure, and fluid).
-        self._fluid.advect(self._vel, dt, plot_ax=None)
-        self._vel.plot_grid(ax)
-        self._vel.plot_velocities(ax, show_faces=False,show_field=True, res=100)
-        #img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
-        img_artist = self._fluid.plot(ax, alpha=0.6,res=200)
+        # Do step:
+        self.tick(dt)
+
+        # Plot step:
+        #self._vel.plot_grid(ax)
+        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=50)
+        # img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
+        img_artist = self._fluid.plot(ax, alpha=0.6, res=200)
 
         if self._colorbar is None:
             # Create colorbar only once
@@ -79,18 +107,14 @@ class Simulator(object):
             self._colorbar.set_label("Density")
         else:
             self._colorbar.update_normal(img_artist)
-            
-        
-        
-        
-            
+
     def animate(self, dt):
         plt.ion()
         fig, ax = plt.subplots()
         while True:
 
             self.plot_step(ax, dt)
-            plt.pause(.1)
+            plt.pause(.25)
             plt.cla()
             plt.xlim(0, self._size[0])
             plt.ylim(0, self._size[1])
@@ -101,13 +125,14 @@ class Simulator(object):
 
     def add_smoke(self):
         self._fluid.add_sphere((0.5, 0.5), 0.16, 10.0)  # Add a smoke source at the center of the domain.
-        #self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
+        # self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    size_m = (100.0, 100.0)
+    size_m = (2.0, 2.0)
     n_cells_x_vel = 15  # Number of velocity cells in the x direction.
-    fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
+    fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
     dt = 0.02  # Time step for the simulation.
@@ -116,8 +141,7 @@ if __name__ == "__main__":
         sim.plot_step(plt.gca(), dt)
         plt.show()
 
-
-    #sim._pressure.plot(plt.gca())
-    #sim._vel.plot_grid(plt.gca())
-    #sim._vel.plot_velocities(plt.gca())
-    #plt.show()
+    # sim._pressure.plot(plt.gca())
+    # sim._vel.plot_grid(plt.gca())
+    # sim._vel.plot_velocities(plt.gca())
+    # plt.show()

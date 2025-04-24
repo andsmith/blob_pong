@@ -57,8 +57,8 @@ class Interp2d(object):
             self.size = size
             self.values = np.zeros((size[1], size[0]), dtype=np.float32) + value
         self.p_max = self.p_min + (np.array(self.size)-1) * np.array(self.dp)
-        logging.info("Initialized interpolation field %i x %i (dx = %.3f m) spanning (x = [%.3f, %.3f], y = [%.3f, %.3f]) meters, with grid shaped %s."
-                     % (self.size[0], self.size[1], self.dp, self.p_min[0], self.p_max[0], self.p_min[1], self.p_max[1], self.values.shape))
+        #logging.info("Initialized interpolation field %i x %i (dx = %.3f m) spanning (x = [%.3f, %.3f], y = [%.3f, %.3f]) meters, with grid shaped %s."
+        #             % (self.size[0], self.size[1], self.dp, self.p_min[0], self.p_max[0], self.p_min[1], self.p_max[1], self.values.shape))
 
     def upper_left_inds(self, x, y):
         """
