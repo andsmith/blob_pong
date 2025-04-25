@@ -11,8 +11,9 @@ class InterpField(ABC):
     """
     Values (scalar/vector/etc) defined on a grid, might be needed somewhere else.
     Values can be modified but interpolation objects need to be re-initialized.
-    For now control this with these methods:
-      * mark_dirty:  Call after values are modified.
+
+    For now, control this with these methods:
+      * mark_dirty:  Call after values are modified (if used in mulitple places).
       * finalize:  Call to rebuild interpolation objects (use until values are modified again).
 
     (Alternatively, call finalize() after every modification, but this is slow.)
@@ -72,10 +73,8 @@ class InterpField(ABC):
 
 class CenterScalarField(InterpField):
     """
-    A scalar field defined at the center of the cells.
-    The field is defined on a grid of size (n_x, n_y).
-    The value is defined at the center of each cell, interpolated elsewhere.
-    The size is in meters.
+    A scalar field is defined at the center of the cells & interpolated elsewhere.
+      (pressure, density, etc.)
     """
 
     def __init__(self, size_m, grid_size, values=None, name="(scalar)"):

@@ -59,8 +59,7 @@ class VelocityField(InterpField):
         logging.info("Initializing Velocity grid %i x %i (dx = %.3f m) spanning (%.3f, %.3f) meters."
                      % (self.n_cells[0], self.n_cells[1], self.dx, self.size[0], self.size[1]))
         self._init_grids()
-
-        self.finalize()
+        self.finalize()  # prepare for interpolation (call this after changes to velocities)
 
     def add(self, delta_v):
         """
@@ -85,6 +84,10 @@ class VelocityField(InterpField):
         super().finalize()
 
     def _get_interp(self):
+        """
+        Create the interpolation object for the velocity field.
+        (finalize() calls this)
+        """
         h_p0 = (self.h_x[0], self.h_y[0])
         v_p0 = (self.v_x[0], self.v_y[0])
         n_h_vel_cells = (self.n_cells[0] + 1, self.n_cells[1])
@@ -101,7 +104,8 @@ class VelocityField(InterpField):
         self.v_vel[-1, :] = 0.0
         self.h_vel[:, 0] = 0.0
         self.h_vel[:, -1] = 0.0
-        # Set the velocities at the corners to zero:
+
+        # TODO:  enforce free/no slip for objects
 
     def _init_grids(self):
         # Coordinates of grid centers:
@@ -118,6 +122,7 @@ class VelocityField(InterpField):
         self.v_x = np.linspace(0.0, self.size[0], self.n_cells[0] + 1)[:-1] + 0.5 * (self.size[0] / self.n_cells[0])
         self.v_y = np.linspace(0.0, self.size[1], self.n_cells[1] + 1)
 
+        # All grid points (for advecting velocities):
         self._h_points = np.stack(np.meshgrid(self.h_x, self.h_y),axis=-1)
         self._v_points = np.stack(np.meshgrid(self.v_x, self.v_y),axis=-1)
 
@@ -130,6 +135,7 @@ class VelocityField(InterpField):
         self.v_vel += self._rng.normal(0, scale, self.v_vel.shape)
         self.h_vel += self._rng.normal(0, scale, self.h_vel.shape)
         self.finalize()
+        return self
 
     def get_cfl(self, dt, dx, C=0.5):
         """

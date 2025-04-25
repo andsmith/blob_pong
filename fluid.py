@@ -50,17 +50,17 @@ class SmokeField(FluidField):
     def plot(self, ax, res=1000, alpha=0.8):
         return super().plot(ax, res=res, alpha=alpha, title="Smoke density")
 
-    def advect(self, velocity, dt):  # _lagrange
+    def advect(self, velocity, dt,C=5.):  # _lagrange
         """
         For each grid point, find the new velocity by moving the point backwards through the 
-        velocity field for a time step dt. Then interpolate the density at the new position.
+        velocity field for a time step dt. Then interpolate the density at that position.
         """
         self._frame_no += 1
         # if self._frame_no==100:
         #    import ipdb; ipdb.set_trace()
 
         points = self._get_cell_centers()
-        points_moved = advect(points, velocity, dt, self.dx, self.size,C=.5)
+        points_moved = advect(points, velocity, dt, self.dx, self.size,C=C)
         old_values = self.interp_at(points_moved)
 
         self.values = old_values

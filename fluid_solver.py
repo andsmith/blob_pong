@@ -14,16 +14,13 @@ class Simulator(object):
     """
     Simulate 2d fluid flow in a rectangular domain using Navier Stokes equations.
 
-    Subclasses are for compressible/incompressible fluids.
-
     Roadmap:
     1. "sealed tank" model:  fluid interacting with walls, itself, and gravity.
     TODO: 2. Create sources and sinks.
     TODO: 3. Be pushed around by moving objects.
 
-
-    For smoke, the fluid is represented by a density function.
-    For liquid, the fluid is represented by a signed distance function (level set).
+    (Current) For smoke, the fluid is represented by a density function.
+    (Future) For liquid, the fluid is represented by a signed distance function (level set).
     """
 
     def __init__(self, size_m, n_cells_x_vel, fluid_cell_mult):
@@ -37,8 +34,7 @@ class Simulator(object):
         self._size, vel_grid_size, _ = scale_y(size_m, n_cells_x_vel)
         _, fluid_grid_size, _ = scale_y(size_m, n_cells_x_vel * fluid_cell_mult)
 
-        self._vel = VelocityField(size_m, vel_grid_size)
-        self._vel.randomize(scale=3)
+        self._vel = VelocityField(size_m, vel_grid_size).randomize(scale=3)
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
 
@@ -60,7 +56,7 @@ class Simulator(object):
         """
         Convert world coordinates to pixel coordinates.
         :param coords: N x 2 array of world coordinates.
-        :return: N x 2 array of pixel coordinates.
+        :return: N x 2 array of pixel coordinates.  
         """
         x, y = coords[:, 0], coords[:, 1]
         p_coords = (x / self._dims[0]) * self._size[0], (y / self._dims[1]) * self._size[1]
@@ -77,18 +73,16 @@ class Simulator(object):
           b) Advect the fluid for time dt using the new velocity field.
         """
         # a) Update velocity
-        #delva_v = self._get_external_forces(dt)
-        #self._vel.advect(dt)
+        # TODO: Gravity here
+        self._vel.advect(dt)
         self._vel.diffuse(dt)
-        WRITE THESE TWO:
-        #self._pressure.set_incompressible(self._vel, dt, self._fluid)
-        #self._vel.project(self._pressure, dt)
+
+        START HERE: 
+        self._pressure.set_incompressible(self._vel, dt, self._fluid)
+        self._vel.project(self._pressure, dt)
 
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
-
-    def _get_external_forces(self, dt):
-        return DeltaV.from_gravity(self._vel.n_cells, dt) 
     
 
     def plot_step(self, ax, dt):
@@ -114,7 +108,7 @@ class Simulator(object):
         while True:
 
             self.plot_step(ax, dt)
-            plt.pause(.25)
+            plt.pause(.2)
             plt.cla()
             plt.xlim(0, self._size[0])
             plt.ylim(0, self._size[1])
@@ -135,7 +129,7 @@ if __name__ == "__main__":
     fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
-    dt = 0.02  # Time step for the simulation.
+    dt = 0.005  # Time step for the simulation.
     sim.animate(dt)
     while True:
         sim.plot_step(plt.gca(), dt)
