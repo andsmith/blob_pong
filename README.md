@@ -4,6 +4,9 @@ Generalization of the classic arcade-style game Pong for arbitrary ball viscosit
 ### Requirements:
 
 
+sudo apt install liblapack-dev libopenblas-dev libgmp3-dev libmpfr-dev
+git clone git@github.com:drfancypants:SuiteSparse
+pip3 install numpy matplotlib jax sklearn.sparse scikit-sparse 
 
 
 ### Running the fluid solver
