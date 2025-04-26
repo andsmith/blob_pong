@@ -1,8 +1,8 @@
 import numpy as np
 import logging
 from abc import ABC, abstractmethod
-from interpolation import Interp2d
-import matplotlib.pyplot as plt
+#from interpolation import Interp2d
+from interp_jax import Interp2d
 
 from util import scale_y
 

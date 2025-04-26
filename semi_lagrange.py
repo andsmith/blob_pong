@@ -19,8 +19,8 @@ def advect(points, velocity, dt, dx, size, C=.5):
     """
     
     dt_sub, n_iter = velocity.get_cfl(dt, dx, C=C)
-    logging.info("\tadvection time step (%.3f) -> (%i x %.3f)."
-                    % (dt, n_iter, dt_sub))
+    #logging.info("\tadvection time step (%.3f) -> (%i x %.3f)."
+    #                % (dt, n_iter, dt_sub))
     
     for iter in range(n_iter):
         velocities = velocity.interp_at(points)

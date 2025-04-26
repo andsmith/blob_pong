@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import jit, vmap
+from jax import jit
 
 class Interp2d:
     def __init__(self, p0, dp, size=None, value=0.):
@@ -19,9 +19,11 @@ class Interp2d:
     @staticmethod
     @jit
     def _interp_jit(points, values, p_min, dp, size):
-        points = jnp.array(points).reshape(-1, 2)
-        x = points[:, 0]
-        y = points[:, 1]
+        #old_shape = points.shape
+        old_type = points.dtype
+        points = jnp.asarray(points, dtype=jnp.float32)
+        x = points[..., 0]
+        y = points[..., 1]
 
         # Compute indices
         i0 = jnp.floor((x - p_min[0]) / dp).astype(int)
@@ -52,7 +54,8 @@ class Interp2d:
             v01 * (1 - t_x) * t_y +
             v00 * (1 - t_x) * (1 - t_y)
         )
-        return interp_values
+        #values_shaped = interp_values.reshape(old_shape[0], -1)
+        return interp_values.astype(old_type)
 
     def interpolate(self, points):
         return self._interp_jit(points, self.values, self.p_min, self.dp, self.size)

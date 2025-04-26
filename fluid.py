@@ -33,11 +33,11 @@ class SmokeField(FluidField):
         points = np.stack((points_x, points_y), axis=-1)
         return points
 
-    def add_sphere(self, center, radius, density):
+    def add_circle(self, center, radius, density):
         """
-        Set all points in a specified sphere to a density value.
-        :param center: The center of the sphere in world coordinates.
-        :param radius: The radius of the sphere in world coordinates.
+        Set all points in a specified circle to a density value.
+        :param center: The center of the circle in world coordinates.
+        :param radius: The radius of the circle in world coordinates.
         :param density: The density value to set.
         """
         center = np.array(center).reshape(1, 1, 2) * self.size  # convert to grid coordinates
@@ -69,7 +69,7 @@ class SmokeField(FluidField):
 
 def test_smoke():
     smoke = SmokeField((1., 1.), (50, 50))
-    smoke.add_sphere((0.5, 0.5), 0.16, 10.0)
+    smoke.add_circle((0.5, 0.5), 0.16, 10.0)
     fig, ax = plt.subplots()
     smoke.plot(ax, res=300, alpha=0.8)
     plt.show()

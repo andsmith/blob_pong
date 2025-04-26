@@ -1,11 +1,7 @@
 import numpy as np
-# import jax.numpy as jnp
-from jax import grad, jit, vmap
 import logging
 from fields import CenterScalarField
 import matplotlib.pyplot as plt
-from scipy.sparse import csc_matrix, csr_matrix
-from scipy.sparse.linalg import splu, spsolve
 from projection import Projection
 
 
@@ -49,6 +45,7 @@ class PressureField(CenterScalarField):
         :param velocity_masks:  (horizontal, vertical), each an self.n_cells sized array
           indicating which velocity components are free (i.e. not fixed by boundary conditions).
         """
+        raise NotImplementedError("Pressure projection not implemented yet.")
         if self.dx != velocities.dx or self.size != velocities.size:
             raise ValueError("Velocity and pressure fields must have the same grid sizes & spacing.")
 
@@ -62,7 +59,7 @@ class PressureField(CenterScalarField):
 def _test_pressure(plot=True):
 
     pf = PressureField((1.0, 1.0), (20, 20), unit='atm')
-    pf.randomize(seed=0, scale=10)
+    pf.randomize( scale=10)
     if plot:
         fig, ax = plt.subplots()
         pf.plot(ax, alpha=0.5)

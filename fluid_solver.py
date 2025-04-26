@@ -2,13 +2,12 @@
 # from jax import random, grad, jit, vmap
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2
-from velocity import VelocityField, DeltaV
+from velocity import VelocityField
 from pressure import PressureField
 from fluid import SmokeField  # , LiquidField
 from util import scale_y
 import logging
-
+import time
 
 class Simulator(object):
     """
@@ -37,8 +36,10 @@ class Simulator(object):
         self._vel = VelocityField(size_m, vel_grid_size).randomize(scale=3)
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
-
         self._colorbar = None
+
+        self._timing = {}
+
 
     # @jit
     def pixel_to_world(self, coords):
@@ -74,12 +75,12 @@ class Simulator(object):
         """
         # a) Update velocity
         # TODO: Gravity here
-        self._vel.advect(dt)
-        self._vel.diffuse(dt)
+        #self._vel.advect(dt)
+        #self._vel.diffuse(dt)
 
-        START HERE: 
-        self._pressure.set_incompressible(self._vel, dt, self._fluid)
-        self._vel.project(self._pressure, dt)
+        # START HERE: 
+        #self._pressure.set_incompressible(self._vel, dt, self._fluid)
+        #self._vel.project(self._pressure, dt)
 
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
@@ -91,7 +92,8 @@ class Simulator(object):
 
         # Plot step:
         #self._vel.plot_grid(ax)
-        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=50)
+        n_velocity_arrows = 50
+        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=n_velocity_arrows)
         # img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
         img_artist = self._fluid.plot(ax, alpha=0.6, res=200)
 
@@ -105,37 +107,62 @@ class Simulator(object):
     def animate(self, dt):
         plt.ion()
         fig, ax = plt.subplots()
+        n_frames=0
+        t0 = time.perf_counter()
         while True:
+            n_frames += 1
 
             self.plot_step(ax, dt)
-            plt.pause(.2)
+            plt.pause(.1)
             plt.cla()
             plt.xlim(0, self._size[0])
             plt.ylim(0, self._size[1])
             plt.gca().set_aspect('equal', adjustable='box')
             plt.title("Fluid Simulation")
             plt.draw()
+
+            if n_frames % 10 == 0:
+                t1 = time.perf_counter()
+                logging.info(f"FPS: {n_frames / (t1 - t0):.2f}")
+                n_frames = 0
+                t0 = time.perf_counter()
+
         plt.ioff()
 
     def add_smoke(self):
-        self._fluid.add_sphere((0.5, 0.5), 0.16, 10.0)  # Add a smoke source at the center of the domain.
+        self._fluid.add_circle((0.5, 0.5), 0.16, 10.0)  # Add a smoke source at the center of the domain.
         # self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+def run(plot=True):
     size_m = (2.0, 2.0)
-    n_cells_x_vel = 15  # Number of velocity cells in the x direction.
+    n_cells_x_vel = 15  # Number of velocity cells in the x direction
     fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
-    dt = 0.005  # Time step for the simulation.
-    sim.animate(dt)
-    while True:
-        sim.plot_step(plt.gca(), dt)
-        plt.show()
 
+    dt = 0.005  # Time step for the simulation.
+    
+    if plot:
+       sim.animate(dt)
+    else:
+        n_ticks = 0
+        t0= time.perf_counter()
+        while True:
+            sim.tick(dt)
+            n_ticks += 1
+            if n_ticks % 10 == 0:
+                t1 = time.perf_counter()
+                logging.info(f"Updates per second: {n_ticks / (t1 - t0):.2f}")
+                n_ticks = 0
+                t0 = time.perf_counter()
+        
     # sim._pressure.plot(plt.gca())
     # sim._vel.plot_grid(plt.gca())
     # sim._vel.plot_velocities(plt.gca())
     # plt.show()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    run(plot=True)

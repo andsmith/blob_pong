@@ -20,13 +20,10 @@ Jax is use for just-in-time compilation (jit) and vectorization (vmap).
 
 """
 import numpy as np
-import jax.numpy as jnp
-from jax import grad, jit, vmap
-from numba import jit, float64, int32
 from scipy.interpolate import RectBivariateSpline
 import logging
+from multiprocessing import cpu_count, Pool
 import time
-
 from interp_jax import Interp2d as Interp2d_jax
 
 
@@ -107,71 +104,11 @@ class Interp2d(object):
                          v01 * a_lower_right + v00 * a_upper_right)
         return interp_values
 
-
-def test_interp_free(plot=False):
-    x = np.array((0, 1, 2))
-    y = np.array((0, 1, 2))
-    dx = 1.0
-    z = np.array([[1, 1, 1],
-                  [2, 3, 4],
-                  [.1, 1.2, 2.2]])
-    inter_ctrl = RectBivariateSpline(x, y, z.T, kx=1, ky=1)
-    interp_test = Interp2d((x[0], y[0]), dx, size=None, value=z)
-
-    # test single values
-    tests = [{'point': (0.0, 0.5), 'value': 1.5},  # left edge midway up, between values 1 and 2
-             {'point': (2.0, 0.5), 'value': 2.5},  # right edge,between rows 0 and 1, values 1 and 4
-             # TODO: Add more edges & interior checks
-             ]
-    for test in tests:
-        test_point = test['point']
-        expected_value = test['value']
-
-        interp_value = interp_test.interpolate(test_point)[0]
-        control_value = inter_ctrl(test_point[0], test_point[1], grid=False)
-        print("Test point: %s, Expected value: %.3f, Interpolated value:%.3f, Control value:%.3f" %
-              (test_point, expected_value, interp_value, control_value))
-        assert np.isclose(interp_value, expected_value, rtol=1e-5,
-                          atol=1e-6), f"Interpolation failed for point {test_point}"
-
-    if plot:
-        import matplotlib.pyplot as plt
-
-        x_lim = x.min(), x.max()-1e-8
-        y_lim = y.min(), y.max()-1e-8
-        x = np.linspace(x_lim[0], x_lim[1], 200)
-        y = np.linspace(y_lim[0], y_lim[1], 200)
-        test_x, test_y = np.meshgrid(x, y)
-        img_ctrl = inter_ctrl(test_x, test_y, grid=False)
-        coords = np.array((test_x.flatten(), test_y.flatten())).T
-        img_test = interp_test.interpolate(coords)
-        img_test = img_test.reshape(test_x.shape)
-        fig, ax = plt.subplots(ncols=2, nrows=2)
-        ax = ax.flatten()
-        # show original
-        img = ax[0].imshow(z, cmap='jet', interpolation='none', extent=(x[0], x[-1], y[0], y[-1]))
-        plt.colorbar(img, ax=ax[0])
-        ax[0].set_title("Original")
-
-        # show control interpolation
-        img = ax[1].imshow(img_ctrl, cmap='jet', interpolation='none', extent=(x[0], x[-1], y[0], y[-1]))
-        plt.colorbar(img, ax=ax[1])
-        ax[1].set_title("Control Interpolation")
-
-        # show test interpolation
-        img = ax[2].imshow(img_test, cmap='jet', interpolation='none', extent=(x[0], x[-1], y[0], y[-1]))
-        plt.colorbar(img, ax=ax[2])
-        ax[2].set_title("Test Interpolation")
-
-        # show difference image
-        img = ax[3].imshow(img_test - img_ctrl, cmap='jet', interpolation='none', extent=(x[0], x[-1], y[0], y[-1]))
-        plt.colorbar(img, ax=ax[3])
-        ax[3].set_title("Difference Image")
-        plt.show()
-
-
-def test_interp_free2(plot=False):
-
+def test_interp_diff(plot=False):
+    """
+    Show the difference between our implementation and RectBivariateSpline.
+    :param plot: If True, show the images, otherwise just print the values.
+    """
     x = np.array((0, 1))
     y = np.array((0, 1))
     z = np.array([[2.0, 2.0],  # function to be interpolated at (x,y)
@@ -284,14 +221,22 @@ def _trial(image, n_interp, n_test_points, interpolator):
     return times
 
 
-def speed_test(image_size=(640, 480), n_trials=100, n_interp=20,interpolator=Interp2d_jax):
+def speed_test(image_size=(640, 480), n_trials=100, n_interp=20,interpolator=None, n_cores=14):
     """
-    Speed test for the interpolation.
+    Speed test for the interpolation, can it run in parallel?
+
+    Run the naive/jax comparison test in parallel on n_cores.
+
     :param image_size: The size of the image to be interpolated.
     :param n_trials: The number of trials to run.
     :param n_interp: The number of times to re-interpolate the image for each trial
+    :param interpolator: The interpolator class to be used. If None, use the default Interp2d class.
     """
     from multiprocessing import Pool
+    if interpolator is None:
+        from interp_jax import Interp2d as Interp2d_jax
+        interpolator = Interp2d_jax
+        #raise Exception("JAX not installed, please install it to use this feature.")
     image_size = np.array(image_size)
     n_test_points = image_size[0]*image_size[1]
 
@@ -304,7 +249,9 @@ def speed_test(image_size=(640, 480), n_trials=100, n_interp=20,interpolator=Int
     for t_num in range(n_trials):
         image = np.random.rand(image_size[1], image_size[0])
         work.append((image, n_interp, n_test_points, interpolator))
-    n_cores= 14
+    
+    n_cores = cpu_count() if n_cores==0 else n_cores
+
     if n_cores==1:
         print("Computing single core, %i tasks, testing class: %s." % (len(work), interpolator.__name__))
         results = [_trial(*args) for args in work]
@@ -324,5 +271,7 @@ def speed_test(image_size=(640, 480), n_trials=100, n_interp=20,interpolator=Int
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    test_interp_diff(plot=False)
     #speed_test()
-    test_interp_free2(plot=True)
+    logging.info("All tests passed.")
+    
