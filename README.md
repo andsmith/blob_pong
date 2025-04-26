@@ -15,4 +15,4 @@ Right now, it's just smoke being wafted through a random, static velocity field 
 
 ![static advection](/static_advection.png)
 
-The vector field is interpolated over a random 15-cell velocity grid.  The fluid density resolution is 10x that. 
+The vector field is interpolated over a random 15 x 15 cell velocity grid.  The fluid density resolution is 10x that. 
