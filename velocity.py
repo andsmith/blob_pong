@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-#from interpolation import Interp2d
-from interp_jax import Interp2d
+from interpolation import Interp2d
+#from interp_jax import Interp2d
 import logging
 from semi_lagrange import advect
 from fields import InterpField

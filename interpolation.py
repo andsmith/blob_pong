@@ -24,7 +24,7 @@ from scipy.interpolate import RectBivariateSpline
 import logging
 from multiprocessing import cpu_count, Pool
 import time
-from interp_jax import Interp2d as Interp2d_jax
+#from interp_jax import Interp2d as Interp2d_jax
 
 
 class Interp2d(object):

@@ -1,10 +1,10 @@
 import jax.numpy as np
 # import numpy as np
-from jax import grad, jit, vmap
+#from jax import grad, jit, vmap
 import matplotlib.pyplot as plt
 
 
-@jit
+#@jit
 def gradient_central(values, spacing):
     """
     Get the spatial gradient of a function defined on an evenly spaced grid.
@@ -34,7 +34,7 @@ def gradient_central(values, spacing):
     return dx, dy
 
 
-@jit
+#@jit
 def gradient_upwind(values, spacing):
     """
     Just use the upwind scheme for all but the last edges (which are downwind/copied)
