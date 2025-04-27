@@ -3,11 +3,11 @@ Generalization of the classic arcade-style game Pong for arbitrary ball viscosit
 
 ### Requirements:
 ```
-> pip install jax scikit-sparse 
+> pip install jax scikit-sparse opencv-contrib-python
 ```
 If you need to install SuiteSparse (to install scikit-sparse), the headers are in these packages:
 ```
-sudo apt install liblapack-dev libopenblas-dev libgmp3-dev libmpfr-dev
+sudo apt install liblapack-dev libopenblas-dev libgmp3-dev libmpfr-dev libsuitesparse-dev
 ```
 
 
