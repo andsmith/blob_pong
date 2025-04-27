@@ -7,6 +7,7 @@ from semi_lagrange import advect
 from fields import InterpField
 from projection import solve
 from gradients import gradient_upwind
+from fluid import SmokeField
 
 
 class VelocityConstraints(object):
@@ -106,6 +107,19 @@ class VelocityField(InterpField):
 
         # TODO:  enforce free/no slip for objects
 
+    def gravity(self, dt, fluid, rel_density=100.0):
+        """
+        Add gravity to the velocity field in proportion to local interpolated fluid density.
+        :param fluid: The fluid field to add gravity to.
+        :return: None
+        """
+        if not isinstance(fluid, SmokeField):
+            raise ValueError("Gravity only works with smoke fields for now.")
+
+        fluid_density = fluid.interp_at(self._v_points[1:-1, :, :]) * rel_density
+        force = fluid_density * 9.81*dt
+        self.v_vel[1:-1, :] -= force  # apply gravity to vertical velocity
+
     def _init_grids(self):
         # Coordinates of grid centers:
         self.centers_x = np.linspace(
@@ -135,7 +149,7 @@ class VelocityField(InterpField):
         self.h_vel += self._rng.normal(0, scale, self.h_vel.shape)
         self.finalize()
         return self
-    
+
     def add_wind(self, wind):
         """
         Add a wind velocity to the velocity field.
@@ -210,8 +224,8 @@ class VelocityField(InterpField):
         """
 
         dpdx, dpdy = pressure.gradient(method='upwind', extent='valid')
-        #import ipdb
-        #ipdb.set_trace()
+        # import ipdb
+        # ipdb.set_trace()
         self.h_vel[:, 1:-1] += dpdx * dt / self.dx
         self.v_vel[1:-1, :] += dpdy * dt / self.dx
 
@@ -220,7 +234,7 @@ class VelocityField(InterpField):
         div = np.sum(div, axis=0)  # sum over x and y components
         div = np.abs(div)  # take the absolute value of the divergence
         div = np.max(div)
-        #logging.info("Divergence after projection: %f" % div)
+        # logging.info("Divergence after projection: %f" % div)
 
     def diffuse(self, dt, fluid=None):
         """
@@ -255,7 +269,7 @@ class VelocityField(InterpField):
 
             ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,
                       scale_units='xy', angles='xy', width=0.005, headwidth=3, headlength=5)
-            
+
             ax.set_aspect('equal')
             ax.set_xlabel('x (m)')
             ax.set_ylabel('y (m)')
@@ -280,7 +294,7 @@ class VelocityField(InterpField):
             vel_v = vel_v.reshape((y_res, x_res))
             x_coords = x_coords.reshape((y_res, x_res))
             y_coords = y_coords.reshape((y_res, x_res))
-            #print("Max vel_h: ", np.max(vel_h), "Max vel_v: ", np.max(vel_v))
+            # print("Max vel_h: ", np.max(vel_h), "Max vel_v: ", np.max(vel_v))
 
             vel_h[np.abs(vel_h) < min_v] = 0
             vel_v[np.abs(vel_v) < min_v] = 0

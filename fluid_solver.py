@@ -74,8 +74,8 @@ class Simulator(object):
           b) Advect the fluid for time dt using the new velocity field.
         """
         # a) Update velocity
-        # TODO: Gravity here
         self._vel.advect(dt)
+        self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
         #self._vel.diffuse(dt)
 
         # START HERE: 
@@ -142,7 +142,7 @@ def run(plot=True):
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
 
-    dt = 0.05  # Time step for the simulation.
+    dt = 0.005  # Time step for the simulation.
     
     if plot:
        sim.animate(dt)
