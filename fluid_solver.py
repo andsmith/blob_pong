@@ -74,14 +74,14 @@ class Simulator(object):
           b) Advect the fluid for time dt using the new velocity field.
         """
         # a) Update velocity
-        self._vel.advect(dt)
-        self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
+        #self._vel.advect(dt)
+        #self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
         #self._vel.diffuse(dt)
 
         # START HERE: 
-        vel_constraints = VelocityConstraints(self._vel)
-        self._pressure.set_incompressible(self._vel,vel_constraints, dt)
-        self._vel.project(self._pressure, dt)
+        #vel_constraints = VelocityConstraints(self._vel)
+        #self._pressure.set_incompressible(self._vel,vel_constraints, dt)
+        #self._vel.project(self._pressure, dt)
 
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
