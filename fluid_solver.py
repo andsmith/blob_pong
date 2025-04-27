@@ -33,7 +33,7 @@ class Simulator(object):
         self._size, vel_grid_size, _ = scale_y(size_m, n_cells_x_vel)
         _, fluid_grid_size, _ = scale_y(size_m, n_cells_x_vel * fluid_cell_mult)
 
-        self._vel = VelocityField(size_m, vel_grid_size).add_wind(np.array([3.0, -1.0])) 
+        self._vel = VelocityField(size_m, vel_grid_size).randomize(scale=3.0) # add_wind(np.array([3.0, -1.0])) 
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
         self._colorbar = None
