@@ -2,7 +2,7 @@
 # from jax import random, grad, jit, vmap
 import numpy as np
 import matplotlib.pyplot as plt
-from velocity import VelocityField
+from velocity import VelocityField, VelocityConstraints
 from pressure import PressureField
 from fluid import SmokeField  # , LiquidField
 from util import scale_y
@@ -33,7 +33,7 @@ class Simulator(object):
         self._size, vel_grid_size, _ = scale_y(size_m, n_cells_x_vel)
         _, fluid_grid_size, _ = scale_y(size_m, n_cells_x_vel * fluid_cell_mult)
 
-        self._vel = VelocityField(size_m, vel_grid_size).randomize(scale=3)
+        self._vel = VelocityField(size_m, vel_grid_size).add_wind(np.array([3.0, -1.0])) 
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
         self._colorbar = None
@@ -75,12 +75,13 @@ class Simulator(object):
         """
         # a) Update velocity
         # TODO: Gravity here
-        #self._vel.advect(dt)
+        self._vel.advect(dt)
         #self._vel.diffuse(dt)
 
         # START HERE: 
-        #self._pressure.set_incompressible(self._vel, dt, self._fluid)
-        #self._vel.project(self._pressure, dt)
+        vel_constraints = VelocityConstraints(self._vel)
+        self._pressure.set_incompressible(self._vel,vel_constraints, dt)
+        self._vel.project(self._pressure, dt)
 
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
@@ -141,7 +142,7 @@ def run(plot=True):
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke()
 
-    dt = 0.005  # Time step for the simulation.
+    dt = 0.05  # Time step for the simulation.
     
     if plot:
        sim.animate(dt)

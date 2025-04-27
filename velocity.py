@@ -1,47 +1,48 @@
 import numpy as np
 import matplotlib.pyplot as plt
-#from interpolation import Interp2d
+# from interpolation import Interp2d
 from interp_jax import Interp2d
 import logging
 from semi_lagrange import advect
 from fields import InterpField
+from projection import solve
+from gradients import gradient_upwind
 
 
-class DeltaV(object):
+class VelocityConstraints(object):
     """
-    Fast to create and update, but doesn't interpolate.
+    Which components are constrained to specific values, which are free to move.
+        Constraints in this class:
+          - Boundary cells:  Velocity components through faces of the domain are fixed to zero (inmpermeable).
+          - interior cells:  Velocity components are free to take any value.
+          - TODO:  Sources and sinks on the boundary.
+          - TODO:  Static/moving objects:  Normal component (to object) is fixed to object's velocity.
     """
 
-    def __init__(self, grid_size):
-        self.h_vel = np.zeros((grid_size[1], grid_size[0] + 1))  # horizontal components, defined at centers of verical faces
-        self.v_vel = np.zeros((grid_size[1] + 1, grid_size[0]))  # vertical components, defined at centers of horizontal faces
+    def __init__(self, velocity_field, fix_boundary=True):
+        """
+        :param velocity_field: The velocity field to constrain.
+        """
+        self.grid_size = velocity_field.n_cells
 
-    @staticmethod
-    def from_gravity(grid_size, dt):
-        """
-        Create a delta velocity field from gravity.
-        :param grid_size: The number of cells in the x and y direction for the velocity field.
-        :param dt: The time step size.
-        :return: A DeltaV object with the delta velocities.
-        """
-        g = 9.81
-        delta_v = DeltaV(grid_size)
-        delta_v.h_vel[:, :] = 0.0
-        delta_v.v_vel[:, :] = -g * dt
-        return delta_v
+        self.h_vel_const = np.zeros(velocity_field.h_vel.shape)
+        self.v_vel_const = np.zeros(velocity_field.v_vel.shape)
 
-    def __sum__(self, other):
+        self.h_fixed = np.zeros(velocity_field.h_vel.shape, dtype=bool)
+        self.v_fixed = np.zeros(velocity_field.v_vel.shape, dtype=bool)
+
+        if fix_boundary:
+            self.fix_boundary()
+
+    def fix_boundary(self):
         """
-        Add two DeltaV objects together.
-        :param other: The other DeltaV object to add.
-        :return: A new DeltaV object with the sum of the two delta velocities.
+        Fix the boundary cells to zero velocity.
+        :return: None
         """
-        if self.h_vel.shape != other.h_vel.shape or self.v_vel.shape != other.v_vel.shape:
-            raise ValueError("DeltaV objects must have the same shape.")
-        new_delta_v = DeltaV(self.h_vel.shape)
-        new_delta_v.h_vel = self.h_vel + other.h_vel
-        new_delta_v.v_vel = self.v_vel + other.v_vel
-        return new_delta_v
+        self.h_fixed[0, :] = True
+        self.h_fixed[-1, :] = True
+        self.v_fixed[:, 0] = True
+        self.v_fixed[:, -1] = True
 
 
 class VelocityField(InterpField):
@@ -78,7 +79,7 @@ class VelocityField(InterpField):
 
     def finalize(self):
         self.enforce_free_slip()
-        #import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         super().finalize()
 
     def _get_interp(self):
@@ -121,8 +122,8 @@ class VelocityField(InterpField):
         self.v_y = np.linspace(0.0, self.size[1], self.n_cells[1] + 1)
 
         # All grid points (for advecting velocities):
-        self._h_points = np.stack(np.meshgrid(self.h_x, self.h_y),axis=-1)
-        self._v_points = np.stack(np.meshgrid(self.v_x, self.v_y),axis=-1)
+        self._h_points = np.stack(np.meshgrid(self.h_x, self.h_y), axis=-1)
+        self._v_points = np.stack(np.meshgrid(self.v_x, self.v_y), axis=-1)
 
         # Horizontal and vertical velocities (stored in numpy order):
         self.v_vel = np.zeros((self.n_cells[1] + 1, self.n_cells[0]))
@@ -132,6 +133,18 @@ class VelocityField(InterpField):
 
         self.v_vel += self._rng.normal(0, scale, self.v_vel.shape)
         self.h_vel += self._rng.normal(0, scale, self.h_vel.shape)
+        self.finalize()
+        return self
+    
+    def add_wind(self, wind):
+        """
+        Add a wind velocity to the velocity field.
+        :param wind: The wind velocity to add.
+        """
+        if wind.shape != (2,):
+            raise ValueError("Wind must be a 2D vector.")
+        self.h_vel += wind[0]
+        self.v_vel += wind[1]
         self.finalize()
         return self
 
@@ -171,9 +184,43 @@ class VelocityField(InterpField):
 
         h_vel = _get_v_at_pos(self._h_points)
         v_vel = _get_v_at_pos(self._v_points)
-        self.h_vel = h_vel[:,:, 0]
-        self.v_vel = v_vel[:,:, 1]
+        self.h_vel = h_vel[:, :, 0]
+        self.v_vel = v_vel[:, :, 1]
         self.finalize()
+
+    def gradient(self, method='upwind'):
+        if method == 'upwind':
+            h_grad_x, h_grad_y = gradient_upwind(self.h_vel, self.dx)
+            v_grad_x, v_grad_y = gradient_upwind(self.v_vel, self.dx)
+            h_grad_x = h_grad_x[:, :-1]  # remove the last column (invalid)
+            h_grad_y = h_grad_y[:, :-1]  # remove the last column (invalid)
+            v_grad_x = v_grad_x[:-1, :]  # remove the last row (invalid)
+            v_grad_y = v_grad_y[:-1, :]  # remove the last row (invalid)
+        else:
+            raise ValueError("Unknown gradient method: %s" % method)
+
+        return np.stack((h_grad_x, h_grad_y), axis=-1), np.stack((v_grad_x, v_grad_y), axis=-1)
+
+    def project(self, pressure, dt, v_const=None):
+        """
+        Project the velocity field onto the pressure field to make it divergence free.
+        :param pressure: The pressure field to project onto.
+        :param dt: The time step to use for projection.
+        :param v_const: The velocity constraints to use for projection.
+        """
+
+        dpdx, dpdy = pressure.gradient(method='upwind', extent='valid')
+        #import ipdb
+        #ipdb.set_trace()
+        self.h_vel[:, 1:-1] += dpdx * dt / self.dx
+        self.v_vel[1:-1, :] += dpdy * dt / self.dx
+
+        # check for divergence:
+        div = self.gradient(method='upwind')
+        div = np.sum(div, axis=0)  # sum over x and y components
+        div = np.abs(div)  # take the absolute value of the divergence
+        div = np.max(div)
+        #logging.info("Divergence after projection: %f" % div)
 
     def diffuse(self, dt, fluid=None):
         """
@@ -182,7 +229,6 @@ class VelocityField(InterpField):
         :param fluid: The fluid field to diffuse.  (Not used for gasses, TODO.)
         """
         pass
-
 
     def plot_grid(self, ax):
         """
@@ -209,6 +255,7 @@ class VelocityField(InterpField):
 
             ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,
                       scale_units='xy', angles='xy', width=0.005, headwidth=3, headlength=5)
+            
             ax.set_aspect('equal')
             ax.set_xlabel('x (m)')
             ax.set_ylabel('y (m)')
@@ -216,7 +263,7 @@ class VelocityField(InterpField):
             # ax.set_xlim(0, self.size[0])
             # ax.set_ylim(0, self.size[1])
 
-        def plot_field():
+        def plot_field(min_v=0.025):
             aspect = self.size[0] / self.size[1]
             x_val = np.linspace(0.0, self.size[0], res)
 
@@ -233,6 +280,11 @@ class VelocityField(InterpField):
             vel_v = vel_v.reshape((y_res, x_res))
             x_coords = x_coords.reshape((y_res, x_res))
             y_coords = y_coords.reshape((y_res, x_res))
+            #print("Max vel_h: ", np.max(vel_h), "Max vel_v: ", np.max(vel_v))
+
+            vel_h[np.abs(vel_h) < min_v] = 0
+            vel_v[np.abs(vel_v) < min_v] = 0
+
             ax.quiver(x_coords, y_coords, vel_h, vel_v, color='k', scale_units='xy', angles='xy',
                       width=0.0025, headwidth=2.5, headlength=3.5)
             ax.set_aspect('equal')
