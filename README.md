@@ -2,13 +2,17 @@
 Generalization of the classic arcade-style game Pong for arbitrary ball viscosities.
 
 ### Requirements:
+Library headers:
 ```
-> pip install jax scikit-sparse 
+> sudo apt install liblapack-dev libopenblas-dev libgmp3-dev libmpfr-dev libsuitesparse-dev
 ```
-If you need to install SuiteSparse (to install scikit-sparse), the headers are in these packages:
+Python packages:
 ```
-sudo apt install liblapack-dev libopenblas-dev libgmp3-dev libmpfr-dev
+> pip install jax scikit-sparse opencv-contrib-python
 ```
+
+ 
+
 
 
 ### Running the fluid solver

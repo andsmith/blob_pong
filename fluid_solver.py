@@ -8,6 +8,10 @@ from fluid import SmokeField  # , LiquidField
 from util import scale_y
 import logging
 import time
+import cv2
+
+from loop_timing.loop_profiler import LoopPerfTimer as LPT
+
 
 class Simulator(object):
     """
@@ -33,15 +37,15 @@ class Simulator(object):
         self._size, vel_grid_size, _ = scale_y(size_m, n_cells_x_vel)
         _, fluid_grid_size, _ = scale_y(size_m, n_cells_x_vel * fluid_cell_mult)
 
-        self._vel = VelocityField(size_m, vel_grid_size).add_wind(np.array([3.0, -1.0])) 
+        self._vel = VelocityField(size_m, vel_grid_size).add_wind(np.array([1.0, 0.0]), h_min=0.333)
         self._pressure = PressureField(size_m, vel_grid_size)
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
         self._colorbar = None
-
+        self._d_max = 0.0  # rendering this density, scale color to full saturation (clip if above)
         self._timing = {}
 
-
     # @jit
+
     def pixel_to_world(self, coords):
         """
         Convert pixel coordinates to world coordinates.
@@ -62,7 +66,8 @@ class Simulator(object):
         x, y = coords[:, 0], coords[:, 1]
         p_coords = (x / self._dims[0]) * self._size[0], (y / self._dims[1]) * self._size[1]
         return np.array(p_coords).T
-    
+
+    @LPT.time_function
     def tick(self, dt):
         """
         Perform a simulation step:
@@ -75,80 +80,146 @@ class Simulator(object):
         """
         # a) Update velocity
         self._vel.advect(dt)
-        self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
-        #self._vel.diffuse(dt)
+        # self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
+        # self._vel.diffuse(dt)
 
-        # START HERE: 
-        vel_constraints = VelocityConstraints(self._vel)
-        self._pressure.set_incompressible(self._vel,vel_constraints, dt)
+        # START HERE:
+        self._pressure.set_incompressible(self._vel, None, dt)
         self._vel.project(self._pressure, dt)
 
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
-    
 
-    def plot_step(self, ax, dt):
+    def animate_cv2(self, dt, render_v_grid, render_f_grid):
+        # use render instead of plot methods.
+        # use cv2 to render the simulation
+        size = 900, 900  # w, h
+        margin = 10
+        win_name = "Fluid Simulation"
+        cv2.namedWindow(win_name)
+        cv2.resizeWindow(win_name, size[0], size[1])
+
+        blank = np.zeros((size[1], size[0], 3), dtype=np.uint8)
+        bkg_color = 246, 238, 227  # Background
+        fluid_color = 0, 4, 51
+        line_color = 0, 0, 0
+
+        bbox = {'x': (margin, size[0]-margin), 'y': (margin, size[1]-margin)}
+        LPT.reset(True, burn_in=1, display_after=6)
+        while True:
+            # Do step:
+            LPT.mark_loop_start()
+            self.tick(dt)
+
+            frame = blank.copy()
+            self._fluid.render(frame, self._d_max, bbox, fluid_color, bkg_color)
+            # self._vel.render(frame, bbox, line_color)
+            if render_f_grid:
+                self._fluid.render_grid(frame, bbox, line_color)
+            if render_v_grid:
+                self._vel.render_grid(frame, bbox,  line_color)
+
+            cv2.imshow(win_name, frame[:, :, ::-1])
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('r'):
+                # Randomize the fluid density to create a more realistic initial condition.
+                self._vel.randomize(scale=3.0)
+            elif key == ord('c'):
+                self._fluid.add_circle((0.5, 0.5), 0.16, 10.0)
+            elif key == ord('s'):
+                cv2.imwrite("fluid.png", frame)
+                print("Saved image to fluid.png")
+
+    def plot_state(self, ax):
         # Do step:
-        self.tick(dt)
 
         # Plot step:
-        #self._vel.plot_grid(ax)
-        n_velocity_arrows = 50
-        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=n_velocity_arrows)
+        # self._vel.plot_grid(ax)
+        n_velocity_arrows = 12
+        self._vel.plot_grid(ax)
+        self._vel.plot_velocities(ax, show_faces=True, show_field=False, res=n_velocity_arrows)
         # img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
         img_artist = self._fluid.plot(ax, alpha=0.6, res=200)
 
         if self._colorbar is None:
-            # Create colorbar only once
+            # Create colorbar only onnce
             self._colorbar = plt.colorbar(img_artist, ax=ax, shrink=0.8)
             self._colorbar.set_label("Density")
         else:
             self._colorbar.update_normal(img_artist)
 
-    def animate(self, dt):
-        plt.ion()
-        fig, ax = plt.subplots()
-        n_frames=0
-        t0 = time.perf_counter()
-        while True:
-            n_frames += 1
+    def animate(self, dt, wait=True):
 
-            self.plot_step(ax, dt)
-            plt.pause(.1)
+        def pause():
+            if wait:
+                key = plt.waitforbuttonpress()
+                if key == ord('q'):
+                    return True
+            else:
+                plt.pause(.1)
+            return False
+
+        def disp():
             plt.cla()
+            self.plot_state(ax)
             plt.xlim(0, self._size[0])
             plt.ylim(0, self._size[1])
             plt.gca().set_aspect('equal', adjustable='box')
             plt.title("Fluid Simulation")
             plt.draw()
 
+            return pause()
+
+        plt.ion()
+        fig, ax = plt.subplots()
+        n_frames = 0
+        t0 = time.perf_counter()
+        disp()
+        while True:
+            n_frames += 1
+
+            self.tick(dt)
+
+            if disp():
+                break
+
             if n_frames % 10 == 0:
                 t1 = time.perf_counter()
                 logging.info(f"FPS: {n_frames / (t1 - t0):.2f}")
                 n_frames = 0
                 t0 = time.perf_counter()
-
+        print("Exiting simulation loop.")
         plt.ioff()
 
-    def add_smoke(self):
-        self._fluid.add_circle((0.5, 0.5), 0.16, 10.0)  # Add a smoke source at the center of the domain.
+    def set_d_max(self, d_max):
+        # rendering this density, scale color to full saturation (clip if above)
+        self._d_max = d_max
+
+    def add_smoke(self, density_max=10.0):
+        self._fluid.add_circle((0.5, 0.5), 0.26, density_max)  # Add a smoke source at the center of the domain.
         # self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
+        self.set_d_max(density_max)
 
 
-def run(plot=True):
-    size_m = (2.0, 2.0)
-    n_cells_x_vel = 15  # Number of velocity cells in the x direction
-    fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
+def run(plot=True, matplotlib=True):
+    size_m = (1.0, 1.0)
+    n_cells_x_vel = 3  # Number of velocity cells in the x direction
+    fluid_cell_mult = 15  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
-    sim.add_smoke()
+    sim.add_smoke(10.0)  # Add a smoke source at the center of the domain.
 
     dt = 0.005  # Time step for the simulation.
-    
+
     if plot:
-       sim.animate(dt)
+        if matplotlib:
+            sim.animate(dt)
+        else:
+            sim.animate_cv2(dt, render_v_grid=True, render_f_grid=False)
     else:
         n_ticks = 0
-        t0= time.perf_counter()
+        t0 = time.perf_counter()
         while True:
             sim.tick(dt)
             n_ticks += 1
@@ -157,7 +228,7 @@ def run(plot=True):
                 logging.info(f"Updates per second: {n_ticks / (t1 - t0):.2f}")
                 n_ticks = 0
                 t0 = time.perf_counter()
-        
+
     # sim._pressure.plot(plt.gca())
     # sim._vel.plot_grid(plt.gca())
     # sim._vel.plot_velocities(plt.gca())

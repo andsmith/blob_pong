@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from fields import CenterScalarField
 from gradients import gradient_central as gradient
 from semi_lagrange import advect
+from loop_timing.loop_profiler import LoopPerfTimer as LPT
+import cv2
 
 
 class FluidField(CenterScalarField, ABC):
@@ -50,7 +52,8 @@ class SmokeField(FluidField):
     def plot(self, ax, res=1000, alpha=0.8):
         return super().plot(ax, res=res, alpha=alpha, title="Smoke density")
 
-    def advect(self, velocity, dt,C=5.):  # _lagrange
+    @LPT.time_function
+    def advect(self, velocity, dt, C=5.):  # _lagrange
         """
         For each grid point, find the new velocity by moving the point backwards through the 
         velocity field for a time step dt. Then interpolate the density at that position.
@@ -58,22 +61,55 @@ class SmokeField(FluidField):
         self._frame_no += 1
         # if self._frame_no==100:
         #    import ipdb; ipdb.set_trace()
-
+        LPT.add_marker("advect start")
         points = self._get_cell_centers()
-        points_moved = advect(points, velocity, dt, self.dx, self.size,C=C)
+        LPT.add_marker("got cell centers")
+        points_moved = advect(points, velocity, dt, self.dx, self.size, C=C)
+
         old_values = self.interp_at(points_moved)
 
         self.values = old_values
         self.finalize()
 
+    @LPT.time_function
+    def render(self, img, d_max, bbox, fl_color, bkg_color):
+        """
+        Render the smoke field onto an image.
+        :param d_max: The maximum density value for normalization.
+        :param img: The image to render onto.
+        :param bbox: The bounding box for the rendering. 
+          {'x': (x_min, x_max), 'y': (y_min, y_max)}
+        :param color: RGB triplet of maximum density color (interpolated between this and the image.)
+        """
+        
+        # Normalize the density values
+        normalized_vals = np.clip(self.values / d_max, 0, 1)
+
+        # make a single-pixel image then scale it up and put it in the right place
+        fl_color = np.array(fl_color, dtype=np.uint8).reshape(1, 1, 3)
+        bkg_color = np.array(bkg_color, dtype=np.uint8).reshape(1, 1, 3)
+
+        img_small = normalized_vals[...,np.newaxis] * fl_color + (1 - normalized_vals[...,np.newaxis]) * bkg_color  # blend with background color
+        patch = cv2.resize(img_small, (bbox['x'][1] - bbox['x'][0], bbox['y'][1] - bbox['y'][0]), interpolation=cv2.INTER_NEAREST)
+        img[bbox['y'][0]:bbox['y'][1], bbox['x'][0]:bbox['x'][1]] = patch
+
 
 def test_smoke():
-    smoke = SmokeField((1., 1.), (50, 50))
+    # Matplotlib display
+    smoke = SmokeField((1., 1.), (150, 150))
     smoke.add_circle((0.5, 0.5), 0.16, 10.0)
     fig, ax = plt.subplots()
     smoke.plot(ax, res=300, alpha=0.8)
     plt.show()
 
+    # OpenCV render
+    img = np.zeros((900,900, 3), dtype=np.uint8)
+    bbox = {'x': (0, 900), 'y': (0, 900)}
+    bkg_color = 246, 238, 227  # Background
+    fluid_color = 0, 4, 51
+    smoke.render(img, 10.0, bbox, fluid_color, bkg_color)
+    cv2.imshow("Smoke", img[:,:, ::-1])
+    cv2.waitKey(0)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
