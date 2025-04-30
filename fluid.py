@@ -48,8 +48,8 @@ class SmokeField(FluidField):
         self.values[inside] = density
         self.finalize()
 
-    def plot(self, ax, res=1000, alpha=0.8):
-        return super().plot(ax, res=res, alpha=alpha, title="Smoke density")
+    def plot(self, ax, res=1000, alpha=0.8, **kwargs):
+        return super().plot(ax, res=res, alpha=alpha, title="Smoke density", **kwargs)
 
     @LPT.time_function
     def advect(self, velocity, dt, C=.5):  # _lagrange

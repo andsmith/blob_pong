@@ -126,6 +126,7 @@ class PressureField(CenterScalarField):
         # Set the pressure field to the negative solution since we are solving for -p:
         pressures = p.reshape(self.n_cells[1], self.n_cells[0])
         self.values = pressures
+        self.finalize()
 
 
 def _test_pressure(plot=True):

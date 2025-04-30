@@ -305,6 +305,7 @@ class VelocityField(InterpField):
             ax.set_aspect('equal')
 
         if show_faces:
+            self.plot_grid(ax)
             plot_component(self.h_x, self.h_y, self.h_vel, 'r', 'Horizontal velocity', direction=(1, 0))
             plot_component(self.v_x, self.v_y, self.v_vel, 'b', 'Vertical velocity', direction=(0, 1))
             ax.legend()

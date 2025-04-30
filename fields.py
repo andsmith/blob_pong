@@ -221,7 +221,7 @@ class CenterScalarField(InterpField):
         if values is not None:
             self.values += values
 
-    def plot(self, ax, alpha=0.4, res=200, title="(scalar)"):
+    def plot(self, ax, alpha=0.4, res=200, title="(scalar)",cmap_name='gray'):
 
         # draw boundary lines
         ax.plot([0, 0], [0, self.size[1]], color='black', lw=2)
@@ -235,7 +235,7 @@ class CenterScalarField(InterpField):
 
         if res == 0:
             # show values
-            img = ax.imshow(self.values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
+            img = ax.imshow(self.values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap=cmap_name)
         else:
             n_x_points = res
             aspect = self.size[1] / self.size[0]
@@ -243,7 +243,7 @@ class CenterScalarField(InterpField):
             x, y = np.meshgrid(np.linspace(0, self.size[0], n_x_points),
                                np.linspace(0, self.size[1], n_y_points))
             values = self.interp_at(np.array([x.flatten(), y.flatten()]).T).reshape((n_y_points, n_x_points))
-            img = ax.imshow(values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
+            img = ax.imshow(values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap=cmap_name)
         mass = np.sum(self.values) * self.dx * self.dx
         title = "%s\nmass = %.2f kg, range(%.3f, %.3f)" % (self.name, mass, self.values.min(), self.values.max())
         ax.set_title(title)

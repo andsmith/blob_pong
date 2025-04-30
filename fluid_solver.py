@@ -145,21 +145,27 @@ class Simulator(object):
                 cv2.imwrite("fluid.png", frame)
                 logging.info("Saved image to fluid.png")
 
-    def plot_state(self, ax):
+    def plot_state(self, ax, show_pressure=True):
         # Do step:
         # Plot step:
         # self._vel.plot_grid(ax)
 
         n_velocity_arrows = 20
-        #self._vel.plot_grid(ax)
-        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=n_velocity_arrows)
-        # img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
-        img_artist = self._fluid.plot(ax, alpha=0.6, res=200)
+        if show_pressure:
+            #import ipdb; ipdb.set_trace()
+            img_artist=self._pressure.plot(ax, alpha=0.6,res=200, cmap_name='hot')
+            cbar_title = "Relative Pressure"
+            print(np.mean(self._pressure.values), np.std(self._pressure.values))
+        else:
+            img_artist = self._fluid.plot(ax, alpha=0.6, res=200, cmap_name='hot')  # use 'gray' for showing velocity faces
+            cbar_title = "Density"
+        self._vel.plot_velocities(ax, show_faces=True, show_field=False, res=n_velocity_arrows)
+        
 
         if self._colorbar is None:
             # Create colorbar only onnce
             self._colorbar = plt.colorbar(img_artist, ax=ax, shrink=0.8)
-            self._colorbar.set_label("Density")
+            self._colorbar.set_label(cbar_title)
         else:
             self._colorbar.update_normal(img_artist)
 
@@ -212,12 +218,12 @@ class Simulator(object):
 
 def run(plot=True, matplotlib=False):
     size_m = (1.0, 1.0)
-    n_cells_x_vel = 15  # Number of velocity cells in the x direction
+    n_cells_x_vel = 50  # Number of velocity cells in the x direction
     fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
 
-    dt = 0.01  # Time step for the simulation.
+    dt = 0.02  # Time step for the simulation.
 
     if plot:
         if matplotlib:
