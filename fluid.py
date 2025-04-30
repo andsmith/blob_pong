@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 import logging
 import matplotlib.pyplot as plt
 from fields import CenterScalarField
-from gradients import gradient_central as gradient
 from semi_lagrange import advect
 from loop_timing.loop_profiler import LoopPerfTimer as LPT
 import cv2
@@ -53,17 +52,14 @@ class SmokeField(FluidField):
         return super().plot(ax, res=res, alpha=alpha, title="Smoke density")
 
     @LPT.time_function
-    def advect(self, velocity, dt, C=5.):  # _lagrange
+    def advect(self, velocity, dt, C=.5):  # _lagrange
         """
         For each grid point, find the new velocity by moving the point backwards through the 
         velocity field for a time step dt. Then interpolate the density at that position.
         """
         self._frame_no += 1
-        # if self._frame_no==100:
-        #    import ipdb; ipdb.set_trace()
-        LPT.add_marker("advect start")
+        
         points = self._get_cell_centers()
-        LPT.add_marker("got cell centers")
         points_moved = advect(points, velocity, dt, self.dx, self.size, C=C)
 
         old_values = self.interp_at(points_moved)

@@ -42,8 +42,10 @@ class Simulator(object):
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
         self._colorbar = None
         self._d_max = 0.0  # rendering this density, scale color to full saturation (clip if above)
-        self._timing = {}
-
+        self._timing = {'frame_no':0,
+                        't_0': time.perf_counter(), 
+                        't_fps_start': time.perf_counter(),
+                        'update_interval_sec': 2.0}
     # @jit
 
     def pixel_to_world(self, coords):
@@ -90,6 +92,15 @@ class Simulator(object):
         # b) Move the fluid along the velocity field:
         self._fluid.advect(self._vel, dt)
 
+    def _update_fps(self):
+        self._timing['frame_no'] += 1
+        now = time.perf_counter()
+        t_since_last_update = now - self._timing['t_fps_start']
+        if t_since_last_update >= self._timing['update_interval_sec']:
+            logging.info(f"FPS: {self._timing['frame_no'] / t_since_last_update:.2f}")
+            self._timing['frame_no'] = 0
+            self._timing['t_fps_start'] = now
+            
     def animate_cv2(self, dt, render_v_grid, render_f_grid):
         # use render instead of plot methods.
         # use cv2 to render the simulation
@@ -105,7 +116,7 @@ class Simulator(object):
         line_color = 0, 0, 0
 
         bbox = {'x': (margin, size[0]-margin), 'y': (margin, size[1]-margin)}
-        LPT.reset(True, burn_in=1, display_after=6)
+        LPT.reset(False, burn_in=100, display_after=20)
         while True:
             # Do step:
             LPT.mark_loop_start()
@@ -119,6 +130,8 @@ class Simulator(object):
             if render_v_grid:
                 self._vel.render_grid(frame, bbox,  line_color)
 
+            self._update_fps()
+
             cv2.imshow(win_name, frame[:, :, ::-1])
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
@@ -130,16 +143,16 @@ class Simulator(object):
                 self._fluid.add_circle((0.5, 0.5), 0.16, 10.0)
             elif key == ord('s'):
                 cv2.imwrite("fluid.png", frame)
-                print("Saved image to fluid.png")
+                logging.info("Saved image to fluid.png")
 
     def plot_state(self, ax):
         # Do step:
-
         # Plot step:
         # self._vel.plot_grid(ax)
-        n_velocity_arrows = 12
-        self._vel.plot_grid(ax)
-        self._vel.plot_velocities(ax, show_faces=True, show_field=False, res=n_velocity_arrows)
+
+        n_velocity_arrows = 20
+        #self._vel.plot_grid(ax)
+        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=n_velocity_arrows)
         # img_artist=self._pressure.plot(ax, alpha=0.6,res=500)
         img_artist = self._fluid.plot(ax, alpha=0.6, res=200)
 
@@ -152,14 +165,8 @@ class Simulator(object):
 
     def animate(self, dt, wait=True):
 
-        def pause():
-            if wait:
-                key = plt.waitforbuttonpress()
-                if key == ord('q'):
-                    return True
-            else:
-                plt.pause(.1)
-            return False
+        plt.ion()
+        fig, ax = plt.subplots()
 
         def disp():
             plt.cla()
@@ -170,27 +177,27 @@ class Simulator(object):
             plt.title("Fluid Simulation")
             plt.draw()
 
-            return pause()
+            if wait:
+                key = plt.waitforbuttonpress()
+                if key == ord('q'):
+                    return True
+            else:
+                plt.pause(.2)
+            return False
 
-        plt.ion()
-        fig, ax = plt.subplots()
-        n_frames = 0
         t0 = time.perf_counter()
-        disp()
+
+        disp()  # show initial conditions
+
         while True:
-            n_frames += 1
 
             self.tick(dt)
 
             if disp():
                 break
+            self._update_fps()
 
-            if n_frames % 10 == 0:
-                t1 = time.perf_counter()
-                logging.info(f"FPS: {n_frames / (t1 - t0):.2f}")
-                n_frames = 0
-                t0 = time.perf_counter()
-        print("Exiting simulation loop.")
+        logging.info("Exiting simulation loop.")
         plt.ioff()
 
     def set_d_max(self, d_max):
@@ -205,12 +212,12 @@ class Simulator(object):
 
 def run(plot=True, matplotlib=True):
     size_m = (1.0, 1.0)
-    n_cells_x_vel = 3  # Number of velocity cells in the x direction
-    fluid_cell_mult = 15  # Number of fluid cells per velocity cell.
+    n_cells_x_vel = 50  # Number of velocity cells in the x direction
+    fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
-    sim.add_smoke(10.0)  # Add a smoke source at the center of the domain.
+    sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
 
-    dt = 0.005  # Time step for the simulation.
+    dt = 0.01  # Time step for the simulation.
 
     if plot:
         if matplotlib:
@@ -237,4 +244,4 @@ def run(plot=True, matplotlib=True):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    run(plot=True)
+    run()

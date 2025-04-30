@@ -3,7 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 # from interpolation import Interp2d
 from interp_jax import Interp2d
-from gradients import gradient_upwind, gradient_central
+from gradients import gradient_upwind
 from util import scale_y
 import cv2
 
@@ -72,10 +72,9 @@ class InterpField(ABC):
         return self._interp_at(points)
 
     @abstractmethod
-    def gradient(self, method='upwind', extent='valid'):
+    def gradient(self, extent='valid'):
         """
         Get the gradient of the field at the grid points.
-        :param method: The method to use for the gradient ('upwind' or 'central').
         :param extent: The extent of the gradient ('valid' or 'same').
         :return: The gradient of the field at all grid points.
         """
@@ -198,27 +197,13 @@ class CenterScalarField(InterpField):
     def _interp_at(self, points):
         return self._interp.interpolate(points)
 
-    def gradient(self, method='upwind', extent='valid'):
+    def gradient(self):
         """
         Get the gradient of the field at the grid points.
         :param method: The method to use for the gradient ('upwind' or 'central').
         :return: The gradient of the field at the grid points.
         """
-        if method == 'upwind':
-            dx, dy = gradient_upwind(self.values, self.dx)
-            if extent == 'valid':
-                # Return only the valid part of the gradient (excluding the max edges)
-                dx = dx[:, :-1]
-                dy = dy[:-1, :]
-        elif method == 'central':
-            dx, dy = gradient_central(self.values, self.dx)
-            if extent == 'valid':
-                # Return only the valid part of the gradient (excluding all edges)
-                dx = dx[1:-1, 1:-1]
-                dy = dy[1:-1, 1:-1]
-        else:
-            raise ValueError("Unknown gradient method: %s" % method)
-
+        dx, dy = gradient_upwind(self.values, self.dx)
         # Return the gradient as a tuple of arrays
         return dx, dy
 

@@ -6,9 +6,9 @@ import logging
 from semi_lagrange import advect
 from fields import InterpField
 from projection import solve
-from gradients import gradient_upwind
 from fluid import SmokeField
 from loop_timing.loop_profiler import LoopPerfTimer as LPT
+
 
 class VelocityConstraints(object):
     """
@@ -80,7 +80,6 @@ class VelocityField(InterpField):
 
     def finalize(self):
         self.enforce_free_slip()
-        # import ipdb; ipdb.set_trace()
         super().finalize()
 
     def _get_interp(self):
@@ -158,12 +157,12 @@ class VelocityField(InterpField):
         """
         if wind.shape != (2,):
             raise ValueError("Wind must be a 2D vector.")
-        
+
         horiz_y_mask = self.h_y > h_min
         vert_y_mask = self.v_y > h_min
 
-        self.h_vel[horiz_y_mask,:] += wind[0]
-        self.v_vel[vert_y_mask,:] += wind[1]
+        self.h_vel[horiz_y_mask, :] += wind[0]
+        self.v_vel[vert_y_mask, :] += wind[1]
         self.finalize()
         return self
 
@@ -209,18 +208,12 @@ class VelocityField(InterpField):
         self.v_vel = v_vel[:, :, 1]
         self.finalize()
 
-    def gradient(self, method='upwind'):
-        if method == 'upwind':
-            h_grad_x, h_grad_y = gradient_upwind(self.h_vel, self.dx)
-            v_grad_x, v_grad_y = gradient_upwind(self.v_vel, self.dx)
-            h_grad_x = h_grad_x[:, :-1]  # remove the last column (invalid)
-            h_grad_y = h_grad_y[:, :-1]  # remove the last column (invalid)
-            v_grad_x = v_grad_x[:-1, :]  # remove the last row (invalid)
-            v_grad_y = v_grad_y[:-1, :]  # remove the last row (invalid)
-        else:
-            raise ValueError("Unknown gradient method: %s" % method)
+    def gradient(self):
+        #  (row order is in DECREASING y direction)
+        dx = (self.h_vel[:, 1:] - self.h_vel[:, :-1])/self.dx  # horizontal velocity divergence in x direction.
+        dy = (self.v_vel[1:, :] - self.v_vel[:-1, :])/self.dx  # vertical velocity divergence in y direction
+        return dx, dy
 
-        return np.stack((h_grad_x, h_grad_y), axis=-1), np.stack((v_grad_x, v_grad_y), axis=-1)
     @LPT.time_function
     def project(self, pressure, dt, v_const=None):
         """
@@ -229,18 +222,17 @@ class VelocityField(InterpField):
         :param dt: The time step to use for projection.
         :param v_const: The velocity constraints to use for projection.
         """
-        dpdx, dpdy = pressure.gradient(method='upwind', extent='valid')
-        # import ipdb
-        # ipdb.set_trace()
-        self.h_vel[:, 1:-1] += dpdx * dt / self.dx
-        self.v_vel[1:-1, :] += dpdy * dt / self.dx
+        dpdx, dpdy = pressure.gradient()
+
+        self.h_vel[:, 1:-1] -= dpdx * dt 
+        self.v_vel[1:-1, :] -= dpdy * dt 
 
         # check for divergence:
-        div = self.gradient(method='upwind')
-        div = np.sum(div, axis=0)  # sum over x and y components
-        div = np.abs(div)  # take the absolute value of the divergence
-        div = np.max(div)
-        logging.info("Max cell divergence after projection: %f" % div)
+        # div = self.gradient()
+        # div = np.sum(div, axis=0)  # sum over x and y components
+        # div = np.abs(div)  # take the absolute value of the divergence
+        # div = np.max(div)
+        # logging.info("Max cell divergence after projection: %f" % div)
         self.finalize()
 
     def diffuse(self, dt, fluid=None):
@@ -268,7 +260,7 @@ class VelocityField(InterpField):
 
     def plot_velocities(self, ax, res=100, show_faces=True, show_field=False):
 
-        def plot_component(x_coords, y_coords, vel,  plt_str, label, direction=(0, 1),min_v=0.025):
+        def plot_component(x_coords, y_coords, vel,  plt_str, label, direction=(0, 1), min_v=0.025):
             """
             Show as arrows on each face
             """
@@ -276,7 +268,7 @@ class VelocityField(InterpField):
 
             vel_h[np.abs(vel_h) < min_v] = 0
             vel_v[np.abs(vel_v) < min_v] = 0
-            
+
             ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,
                       scale_units='xy', angles='xy', width=0.005, headwidth=3, headlength=5)
 
@@ -308,7 +300,7 @@ class VelocityField(InterpField):
             vel_h[np.abs(vel_h) < min_v] = 0
             vel_v[np.abs(vel_v) < min_v] = 0
 
-            ax.quiver(x_coords, y_coords, vel_h, vel_v, color='k', scale_units='xy', angles='xy',
+            ax.quiver(x_coords, y_coords, vel_h, vel_v, color='k', scale_units='xy', angles='xy',scale=res/2,
                       width=0.0025, headwidth=2.5, headlength=3.5)
             ax.set_aspect('equal')
 

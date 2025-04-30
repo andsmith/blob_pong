@@ -3,9 +3,9 @@ import logging
 from fields import CenterScalarField
 import matplotlib.pyplot as plt
 from projection import solve
-from gradients import gradient_upwind
 from scipy.sparse import csc_matrix
 from loop_timing.loop_profiler import LoopPerfTimer as LPT
+from gradients import gradient_upwind
 
 
 class PressureField(CenterScalarField):
@@ -46,7 +46,7 @@ class PressureField(CenterScalarField):
             TODO 1: Implement liquids
             TODO 4: Implement sources and sinks?
 
-            TODO N: move to a c extension for speed.
+            TODO N: move A-vector construction (and divergences?) to c/cython for speed.
 
 
         :param v_new: The new velocity field after advection, external forces, and diffusion/viscosity, before pressure terms are added.
@@ -61,59 +61,51 @@ class PressureField(CenterScalarField):
         A_vals = []  # A matrix, 1 row per cell, solving for pressures.
         A_size = self.n_cells[0] * self.n_cells[1]  # number of cells in the grid.
 
-        B_vals = []
-        
-        import ipdb; ipdb.set_trace()
-        # Fix B vector tomorrow...
-        dudx, dudy = gradient_upwind(v_new.h_vel, dx)
-        dvdy, dvdx = gradient_upwind(v_new.v_vel, dx)
+        dudx, dvdy = v_new.gradient()
+        div = (dudx + dvdy)  # velocity divergence in each cell.
 
         if phase == 'gas':
             # Solving for all pressures.
             # B vector is negative velocity divergence (i.e. the flux) at each cell.
             # A matrix is 4-point laplacian stencil with diagonal of -4/dx^2 and off-diagonal of 1/dx^2.
+
+            B_vals = -div.flatten()/(dt)
+
             for row in range(self.n_cells[0]):
                 for col in range(self.n_cells[1]):
                     i = col
                     j = row  # flip y axis since matrix direction is opposite cartesian direction?
-
                     # Get the index of the cell in the 1D array.
                     cell_index = row * self.n_cells[1] + col
 
                     n_neighbors = 0
-                    vel_diverg = 0.0
                     # TODO:  Add v_const checking in these if's:
                     if i > 0:  # left neighbor
                         A_row_inds.append(cell_index)
                         A_col_inds.append(cell_index - 1)
                         A_vals.append(-1.0 / dx**2)
                         n_neighbors += 1
-                        vel_diverg += v_new.h_vel[i, j]
                     if i < self.n_cells[1] - 1:  # right neighbor
                         A_row_inds.append(cell_index)
                         A_col_inds.append(cell_index + 1)
                         A_vals.append(-1.0 / dx**2)
                         n_neighbors += 1
-                        vel_diverg -= v_new.h_vel[i, j+1]
                     if j > 0:  # top neighbor
                         A_row_inds.append(cell_index)
                         A_col_inds.append(cell_index - self.n_cells[1])
                         A_vals.append(-1.0 / dx**2)
                         n_neighbors += 1
-                        vel_diverg += v_new.v_vel[i, j]
                     if j < self.n_cells[0] - 1:  # bottom neighbor
                         A_row_inds.append(cell_index)
                         A_col_inds.append(cell_index + self.n_cells[1])
                         A_vals.append(-1.0 / dx**2)
                         n_neighbors += 1
-                        vel_diverg -= v_new.v_vel[i+1, j]
 
                     # Diagonal term:
                     A_row_inds.append(cell_index)
                     A_col_inds.append(cell_index)
                     A_vals.append(n_neighbors / dx**2 + reg)
                     # B vector term:
-                    B_vals.append(vel_diverg / dx/dt)
 
         else:
             raise NotImplementedError("Liquid phase not implemented yet.")
@@ -128,10 +120,11 @@ class PressureField(CenterScalarField):
         B_hat = A.dot(p)
         # Check the residual:
         residual = np.sqrt(np.mean((B_hat - B)**2))  # L2 norm of the residual.
-        logging.info(f"Pressure projection residual RMSE: {residual:.2e}")
+        #logging.info(f"Pressure projection residual RMSE: {residual:f}")
 
         # Set the pressure field to the negative solution since we are solving for -p:
-        self.values = -p.reshape(self.n_cells[1], self.n_cells[0])
+        pressures = p.reshape(self.n_cells[1], self.n_cells[0])
+        self.values = pressures
 
 
 def _test_pressure(plot=True):
