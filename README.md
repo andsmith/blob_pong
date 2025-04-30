@@ -25,7 +25,7 @@ In your Venv:
 > pip install opencv numpy matplotlib
 ```
 
- 
+
 
 
 
@@ -42,3 +42,21 @@ Right now, it's just smoke being wafted through a random, static velocity field 
 
 The vector field is interpolated over a random 15-cell velocity grid.  
 The fluid density resolution is 10x that. 
+
+
+#### Roadmap / To Do:
+
+For V1 (gas phase only):
+  * Interaction with static objects other than 4 walls.
+  * Interaction with moving objects.
+  * Multi-colored smoke.
+  * Sources / Sinks / Fans
+
+For V2:
+  * liquid phase
+  * gravity
+  * lquid sources / sinks
+
+Technical:
+  * move $A$ matrix and $b$ vector construction to c/cython for speed.
+  * Synchronize simulation speed with real-time.

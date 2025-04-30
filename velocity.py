@@ -188,7 +188,7 @@ class VelocityField(InterpField):
         n_iter = int(np.ceil(dt / dt_sub))
         dt_sub = dt / n_iter
         return dt_sub, n_iter
-
+    @LPT.time_function
     def advect(self, dt, fluid=None):
         """
         Approximate the momentum term of the Navier Stokes equation using semi-lagrangian advection.

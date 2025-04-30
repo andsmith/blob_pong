@@ -63,7 +63,7 @@ class PressureField(CenterScalarField):
 
         dudx, dvdy = v_new.gradient()
         div = (dudx + dvdy)  # velocity divergence in each cell.
-
+        LPT.add_marker('got gradients')
         if phase == 'gas':
             # Solving for all pressures.
             # B vector is negative velocity divergence (i.e. the flux) at each cell.
@@ -114,13 +114,14 @@ class PressureField(CenterScalarField):
 
         # Create the B vector:
         B = np.array(B_vals, dtype=np.float64)
+        LPT.add_marker('Made linear system')
         p = solve(A, B)
+        LPT.add_marker('solved linear system')
 
-        # Check solution:
-        B_hat = A.dot(p)
         # Check the residual:
-        residual = np.sqrt(np.mean((B_hat - B)**2))  # L2 norm of the residual.
-        #logging.info(f"Pressure projection residual RMSE: {residual:f}")
+        # B_hat = A.dot(p)
+        # residual = np.sqrt(np.mean((B_hat - B)**2))  # L2 norm of the residual.
+        # logging.info(f"Pressure projection residual RMSE: {residual:f}")
 
         # Set the pressure field to the negative solution since we are solving for -p:
         pressures = p.reshape(self.n_cells[1], self.n_cells[0])

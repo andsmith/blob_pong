@@ -116,7 +116,7 @@ class Simulator(object):
         line_color = 0, 0, 0
 
         bbox = {'x': (margin, size[0]-margin), 'y': (margin, size[1]-margin)}
-        LPT.reset(False, burn_in=100, display_after=20)
+        LPT.reset(False, burn_in=50, display_after=10)
         while True:
             # Do step:
             LPT.mark_loop_start()
@@ -182,7 +182,7 @@ class Simulator(object):
                 if key == ord('q'):
                     return True
             else:
-                plt.pause(.2)
+                plt.pause(.25)
             return False
 
         t0 = time.perf_counter()
@@ -210,10 +210,10 @@ class Simulator(object):
         self.set_d_max(density_max)
 
 
-def run(plot=True, matplotlib=True):
+def run(plot=True, matplotlib=False):
     size_m = (1.0, 1.0)
-    n_cells_x_vel = 50  # Number of velocity cells in the x direction
-    fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
+    n_cells_x_vel = 15  # Number of velocity cells in the x direction
+    fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
 
@@ -223,7 +223,7 @@ def run(plot=True, matplotlib=True):
         if matplotlib:
             sim.animate(dt)
         else:
-            sim.animate_cv2(dt, render_v_grid=True, render_f_grid=False)
+            sim.animate_cv2(dt, render_v_grid=False, render_f_grid=False)
     else:
         n_ticks = 0
         t0 = time.perf_counter()
