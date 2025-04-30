@@ -45,7 +45,9 @@ class SmokeField(FluidField):
         points = self._get_cell_centers()
         distances = np.linalg.norm(points - center, axis=2)
         inside = np.where(distances < radius*self.size[0])
-        self.values[inside] = density
+        circle=np.zeros(self.values.shape, dtype=self.values.dtype)
+        circle[inside]=density
+        self.values+=circle
         self.finalize()
 
     def plot(self, ax, res=1000, alpha=0.8, **kwargs):

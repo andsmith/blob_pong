@@ -42,10 +42,11 @@ class Simulator(object):
         self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
         self._colorbar = None
         self._d_max = 0.0  # rendering this density, scale color to full saturation (clip if above)
-        self._timing = {'frame_no':0,
-                        't_0': time.perf_counter(), 
+        self._timing = {'frame_no': 0,
+                        't_0': time.perf_counter(),
                         't_fps_start': time.perf_counter(),
                         'update_interval_sec': 2.0}
+        self._shutdown=False
     # @jit
 
     def pixel_to_world(self, coords):
@@ -100,7 +101,7 @@ class Simulator(object):
             logging.info(f"FPS: {self._timing['frame_no'] / t_since_last_update:.2f}")
             self._timing['frame_no'] = 0
             self._timing['t_fps_start'] = now
-            
+
     def animate_cv2(self, dt, render_v_grid, render_f_grid):
         # use render instead of plot methods.
         # use cv2 to render the simulation
@@ -117,7 +118,7 @@ class Simulator(object):
 
         bbox = {'x': (margin, size[0]-margin), 'y': (margin, size[1]-margin)}
         LPT.reset(False, burn_in=50, display_after=10)
-        while True:
+        while not self._shutdown:
             # Do step:
             LPT.mark_loop_start()
             self.tick(dt)
@@ -134,33 +135,42 @@ class Simulator(object):
 
             cv2.imshow(win_name, frame[:, :, ::-1])
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('r'):
-                # Randomize the fluid density to create a more realistic initial condition.
-                self._vel.randomize(scale=3.0)
-            elif key == ord('c'):
-                self._fluid.add_circle((0.5, 0.5), 0.16, 10.0)
-            elif key == ord('s'):
+            self.handle_key(key,frame)
+        
+        cv2.destroyAllWindows()
+
+    def handle_key(self, key,frame):
+
+        if key in['r', ord('r')]:
+            # Randomize the fluid density to create a more realistic initial condition.
+            self._vel.randomize(scale=10.0)
+        elif key in ['c',ord('c')]:
+            self._fluid.add_circle((0.5, 0.5), 0.26, 1.0)
+        elif key in ['s',ord('s')]:
+            if frame is not None:
                 cv2.imwrite("fluid.png", frame)
                 logging.info("Saved image to fluid.png")
+            else:
+                logging.info("Matplotlib export not implemented, click the save icon.")
+        elif key in ['q', ord('q')]:
+            self._shutdown = True
 
-    def plot_state(self, ax, show_pressure=True):
+    def plot_state(self, ax, show_pressure=False):
         # Do step:
         # Plot step:
         # self._vel.plot_grid(ax)
 
         n_velocity_arrows = 20
         if show_pressure:
-            #import ipdb; ipdb.set_trace()
-            img_artist=self._pressure.plot(ax, alpha=0.6,res=200, cmap_name='hot')
+            # import ipdb; ipdb.set_trace()
+            img_artist = self._pressure.plot(ax, alpha=0.6, res=200, cmap_name='hot')
             cbar_title = "Relative Pressure"
             print(np.mean(self._pressure.values), np.std(self._pressure.values))
         else:
-            img_artist = self._fluid.plot(ax, alpha=0.6, res=200, cmap_name='hot')  # use 'gray' for showing velocity faces
+            # use 'gray' for showing velocity faces
+            img_artist = self._fluid.plot(ax, alpha=0.6, res=200, cmap_name='hot')
             cbar_title = "Density"
-        self._vel.plot_velocities(ax, show_faces=True, show_field=False, res=n_velocity_arrows)
-        
+        self._vel.plot_velocities(ax, show_faces=False, show_field=True, res=n_velocity_arrows)
 
         if self._colorbar is None:
             # Create colorbar only onnce
@@ -174,6 +184,12 @@ class Simulator(object):
         plt.ion()
         fig, ax = plt.subplots()
 
+        def _keypress(event):
+            print("CLicked key:", event.key)    
+            self.handle_key(event.key, None)
+        
+        fig.canvas.mpl_connect('key_press_event', _keypress)
+        fig.canvas.mpl_connect('close_event', lambda event: plt.close())    
         def disp():
             plt.cla()
             self.plot_state(ax)
@@ -185,8 +201,7 @@ class Simulator(object):
 
             if wait:
                 key = plt.waitforbuttonpress()
-                if key == ord('q'):
-                    return True
+                self.handle_key(key, None)
             else:
                 plt.pause(.25)
             return False
@@ -217,9 +232,9 @@ class Simulator(object):
 
 
 def run(plot=True, matplotlib=False):
-    size_m = (1.0, 1.0)
-    n_cells_x_vel = 50  # Number of velocity cells in the x direction
-    fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
+    size_m = (100.0, 100.0)
+    n_cells_x_vel = 40  # Number of velocity cells in the x direction
+    fluid_cell_mult = 5  # Number of fluid cells per velocity cell.
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
 
