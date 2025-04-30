@@ -1,0 +1,3 @@
+[submodule "loop_timing"]
+	path = loop_timing
+	url = git@github.com:andsmith/loop_timing

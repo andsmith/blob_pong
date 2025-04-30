@@ -2,6 +2,7 @@
 Generalization of the classic arcade-style game Pong for arbitrary ball viscosities.
 
 ### Requirements:
+
 #### Linux:
 
 If you need to install SuiteSparse (to install scikit-sparse), the headers are in these packages:
@@ -23,6 +24,9 @@ In your Venv:
 ```
 > pip install opencv numpy matplotlib
 ```
+
+ 
+
 
 
 

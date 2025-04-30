@@ -7,8 +7,9 @@ where C is the scalar field (e.g. density, temperature, x-component of velocity,
 
 import numpy as np
 import logging
+from loop_timing.loop_profiler import LoopPerfTimer as LPT
 
-
+@LPT.time_function
 def advect(points, velocity, dt, dx, size, C=.5):
     """
     :param points:  ... x 2 array of points to advect.

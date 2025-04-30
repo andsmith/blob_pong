@@ -1,12 +1,13 @@
 import numpy as np
 import logging
 from abc import ABC, abstractmethod
-#from interpolation import Interp2d
+# from interpolation import Interp2d
 from interp_jax import Interp2d
-from gradients import gradient_upwind, gradient_central
+from gradients import gradient_upwind
 from util import scale_y
+import cv2
 
-
+from loop_timing.loop_profiler import LoopPerfTimer as LPT
 class InterpField(ABC):
     """
     Values (scalar/vector/etc) defined on a grid, might be needed somewhere else.
@@ -69,16 +70,92 @@ class InterpField(ABC):
             logging.info("No interpolator, re-initializing:  %s" % self.name)
             self.finalize()
         return self._interp_at(points)
-    
+
     @abstractmethod
-    def gradient(self, method='upwind', extent='valid'):
+    def gradient(self, extent='valid'):
         """
         Get the gradient of the field at the grid points.
-        :param method: The method to use for the gradient ('upwind' or 'central').
         :param extent: The extent of the gradient ('valid' or 'same').
         :return: The gradient of the field at all grid points.
         """
         pass
+
+    def grid_to_pixel(self, bbox, coords):
+        """
+        Convert grid coordinates to pixel coordinates.
+        :param bbox: The bounding box of where the grid will be drawn on an image,
+            {'x': (x_left, x_right), 'y': (y_bottom, y_top)}
+        :param coords: The coordinates to convert. [..., 2]
+        :return: The pixel coordinates.
+        """
+        x_left, y_bottom = bbox['x'][0], bbox['y'][0]
+        x_right, y_top = bbox['x'][1], bbox['y'][1]
+        x_span = x_right - x_left
+        y_span = y_top - y_bottom
+        grid_x_max = self.n_cells[0] * self.dx
+        grid_y_max = self.n_cells[1] * self.dx
+        # Convert to pixel coordinates:
+        pixel_coords = np.zeros_like(coords)
+        pixel_coords[..., 0] = (coords[..., 0]/grid_x_max) * x_span + x_left
+        pixel_coords[..., 1] = (coords[..., 1]/grid_y_max) * y_span + y_bottom
+
+        return pixel_coords
+
+    def pixel_to_grid(self, bbox, coords):
+        """
+        Convert pixel coordinates to grid coordinates.
+        :param bbox: The bounding box of where the grid will be drawn on an image,
+            {'x': (x_left, x_right), 'y': (y_bottom, y_top)}
+        :param coords: The coordinates to convert. [..., 2]
+        :return: The grid coordinates.
+        """
+        x_left, y_bottom = bbox['x'][0], bbox['y'][0]
+        x_right, y_top = bbox['x'][1], bbox['y'][1]
+        x_span = x_right - x_left
+        y_span = y_top - y_bottom
+        grid_x_max = self.n_cells[0] * self.dx
+        grid_y_max = self.n_cells[1] * self.dx
+        # Convert to pixel coordinates:
+        grid_coords = np.zeros_like(coords)
+        grid_coords[..., 0] = (coords[..., 0]-x_left)/x_span * grid_x_max
+        grid_coords[..., 1] = (coords[..., 1]-y_bottom)/y_span * grid_y_max
+
+        return grid_coords
+    @LPT.time_function
+    def render_grid(self, image, bbox, line_color, only_bbox=False):
+        """
+        Render the grid on the image w/thickness 1, bounding box with thickness 2.
+        :param image: The image to render on.
+        :param bbox: The bounding box of the grid.
+        :param line_color: The color of the grid lines.
+        """
+        SHIFT_B = 6
+        SHIFT_M = 2**SHIFT_B
+        img_size_wh = image.shape[1], image.shape[0]
+        grid_top, grid_left = self.n_cells[1] * self.dx, self.n_cells[0] * self.dx
+        grid_bottom, grid_right = 0, 0
+        smallest = self.grid_to_pixel(bbox, np.array((grid_left, grid_bottom)).reshape(1, -1)).reshape(-1)
+        x_left, y_bottom = smallest[0], smallest[1]
+        biggest = self.grid_to_pixel(bbox, np.array((grid_right, grid_top)).reshape(1, -1)).reshape(-1)
+        x_right, y_top = biggest[0], biggest[1]
+        # Draw the bounding box:
+        cv2.rectangle(image,
+                      (int(x_left*SHIFT_M), int(y_bottom*SHIFT_M)),
+                      (int(x_right*SHIFT_M), int(y_top*SHIFT_M)), line_color, 2, cv2.LINE_AA, shift=SHIFT_B)
+        if only_bbox:
+            return
+        # Draw the grid lines:
+        for i in range(self.n_cells[0] + 1):    # vertical lines    
+            x = i * self.dx
+            x_pixel = self.grid_to_pixel(bbox, np.array((x, 0)).reshape(1, -1)).reshape(-1)[0]
+            cv2.line(image, (int(x_pixel*SHIFT_M), int(y_bottom*SHIFT_M)),
+                     (int(x_pixel*SHIFT_M), int(y_top*SHIFT_M)), line_color, 1, cv2.LINE_AA, shift=SHIFT_B)
+        for i in range(self.n_cells[1] + 1):    # horizontal lines
+            y = i * self.dx
+            y_pixel = self.grid_to_pixel(bbox, np.array((0, y)).reshape(1, -1)).reshape(-1)[1]
+            cv2.line(image, (int(x_left*SHIFT_M), int(y_pixel*SHIFT_M)),
+                     (int(x_right*SHIFT_M), int(y_pixel*SHIFT_M)), line_color, 1, cv2.LINE_AA, shift=SHIFT_B)
+
 
 class CenterScalarField(InterpField):
     """
@@ -108,7 +185,7 @@ class CenterScalarField(InterpField):
         noise = self._rng.uniform(0, scale, self.values.shape)
         self.values += noise
         self.values = np.clip(self.values, 0, None)  # ensure non-negative pressure
-        
+
     def _get_interp(self):
         """
         Create the interpolation object for the scalar field.
@@ -120,28 +197,13 @@ class CenterScalarField(InterpField):
     def _interp_at(self, points):
         return self._interp.interpolate(points)
 
-    def gradient(self, method='upwind',extent='valid'):
+    def gradient(self):
         """
         Get the gradient of the field at the grid points.
         :param method: The method to use for the gradient ('upwind' or 'central').
         :return: The gradient of the field at the grid points.
         """
-        if method == 'upwind':
-            dx, dy = gradient_upwind(self.values, self.dx)
-            if extent == 'valid':
-                # Return only the valid part of the gradient (excluding the max edges)
-                dx = dx[:, :-1]
-                dy = dy[:-1, :]
-        elif method == 'central':
-            dx, dy = gradient_central(self.values, self.dx)
-            if extent == 'valid':
-                # Return only the valid part of the gradient (excluding all edges)
-                dx = dx[1:-1, 1:-1]
-                dy = dy[1:-1, 1:-1]
-        else:
-            raise ValueError("Unknown gradient method: %s" % method)
-        
-
+        dx, dy = gradient_upwind(self.values, self.dx)
         # Return the gradient as a tuple of arrays
         return dx, dy
 
@@ -168,12 +230,12 @@ class CenterScalarField(InterpField):
         ax.plot([0, self.size[0]], [self.size[1], self.size[1]], color='black', lw=2)
 
         # show grid points
-        #points = np.array([(x, y) for x in self.centers_x for y in self.centers_y])
-        #ax.scatter(points[:, 0], points[:, 1], color='black', s=1, alpha=0.5)
+        # points = np.array([(x, y) for x in self.centers_x for y in self.centers_y])
+        # ax.scatter(points[:, 0], points[:, 1], color='black', s=1, alpha=0.5)
 
         if res == 0:
             # show values
-            img = ax.imshow(self.values[::-1,:], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
+            img = ax.imshow(self.values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
         else:
             n_x_points = res
             aspect = self.size[1] / self.size[0]
@@ -181,7 +243,7 @@ class CenterScalarField(InterpField):
             x, y = np.meshgrid(np.linspace(0, self.size[0], n_x_points),
                                np.linspace(0, self.size[1], n_y_points))
             values = self.interp_at(np.array([x.flatten(), y.flatten()]).T).reshape((n_y_points, n_x_points))
-            img = ax.imshow(values[::-1,:], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
+            img = ax.imshow(values[::-1, :], extent=(0, self.size[0], 0, self.size[1]), alpha=alpha, cmap='jet')
         mass = np.sum(self.values) * self.dx * self.dx
         title = "%s\nmass = %.2f kg, range(%.3f, %.3f)" % (self.name, mass, self.values.min(), self.values.max())
         ax.set_title(title)
