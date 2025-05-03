@@ -49,12 +49,27 @@ class SmokeField(FluidField):
         circle[inside]=density
         self.values+=circle
         self.finalize()
-
+    def add_square(self, center, size, density):    
+        """
+        Set all points in a specified square to a density value.
+        :param center: The center of the square in world coordinates.
+        :param size: The size of the square in world coordinates.
+        :param density: The density value to set.
+        """
+        center = np.array(center).reshape(1, 1, 2) * self.size
+        points = self._get_cell_centers()
+        distances = np.abs(points - center)
+        inside = np.where(np.all(distances < size*self.size[0]/2, axis=2))
+        square = np.zeros(self.values.shape, dtype=self.values.dtype)
+        square[inside] = density
+        self.values += square
+        self.finalize()
+        
     def plot(self, ax, res=1000, alpha=0.8, **kwargs):
         return super().plot(ax, res=res, alpha=alpha, title="Smoke density", **kwargs)
 
     @LPT.time_function
-    def advect(self, velocity, dt, C=.5):  # _lagrange
+    def advect(self, velocity, dt, C=2.0):  # _lagrange
         """
         For each grid point, find the new velocity by moving the point backwards through the 
         velocity field for a time step dt. Then interpolate the density at that position.

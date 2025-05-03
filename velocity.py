@@ -269,7 +269,7 @@ class VelocityField(InterpField):
             vel_h[np.abs(vel_h) < min_v] = 0
             vel_v[np.abs(vel_v) < min_v] = 0
 
-            ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,
+            ax.quiver(x_coords, y_coords, vel_h, vel_v, label=label, color=plt_str,scale=res/2,
                       scale_units='xy', angles='xy', width=0.005, headwidth=3, headlength=5)
 
             ax.set_aspect('equal')

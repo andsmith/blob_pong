@@ -58,5 +58,6 @@ For V2:
   * lquid sources / sinks
 
 Technical:
+  * Move interpolation to jax
   * move $A$ matrix and $b$ vector construction to c/cython for speed.
   * Synchronize simulation speed with real-time.
