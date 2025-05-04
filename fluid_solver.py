@@ -11,7 +11,7 @@ import time
 import cv2
 import sys
 from loop_timing.loop_profiler import LoopPerfTimer as LPT
-
+from colors import FLUID_COLOR, LINE_COLOR, BKG_COLOR
 
 class Simulator(object):
     """
@@ -119,9 +119,6 @@ class Simulator(object):
         _ = input("Press Enter to start the app...")
 
         blank = np.zeros((size[1], size[0], 3), dtype=np.uint8)
-        bkg_color = 246, 238, 227  # Background
-        fluid_color = 0, 4, 51
-        line_color = 0, 0, 0
 
         bbox = {'x': (margin, size[0]-margin), 'y': (margin, size[1]-margin)}
         LPT.reset(enable=False, burn_in=50, display_after=10)
@@ -131,12 +128,12 @@ class Simulator(object):
             self.tick(dt)
 
             frame = blank.copy()
-            self._fluid.render(frame, self._d_max, bbox, fluid_color, bkg_color)
+            self._fluid.render(frame, self._d_max, bbox, FLUID_COLOR, BKG_COLOR)
             # self._vel.render(frame, bbox, line_color)
             if render_f_grid:
-                self._fluid.render_grid(frame, bbox, line_color)
+                self._fluid.render_grid(frame, bbox, LINE_COLOR)
             if render_v_grid:
-                self._vel.render_grid(frame, bbox,  line_color)
+                self._vel.render_grid(frame, bbox,  LINE_COLOR)
 
             self._update_fps()
 
