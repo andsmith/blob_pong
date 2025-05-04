@@ -48,7 +48,7 @@ class Solid(ABC):
         self._mpl_color = rgb_int_to_float(color)  # convert to float for matplotlib
         self._artists = {}
 
-        self._mesghrid_cache = {}  # index by (grid_shape, dx)
+        self._test_point_cache = {}  # index by (grid_shape, dx)
 
     def _get_test_points(self, grid_shape, dx):
         """
@@ -56,40 +56,44 @@ class Solid(ABC):
         These are defined in the centers of the grid cells.
         Cache them for speed.
         """
-        if (grid_shape, dx) in self._mesghrid_cache:
-            return self._mesghrid_cache[(grid_shape, dx)]
+
+        if (grid_shape, dx) in self._test_point_cache:
+            return self._test_point_cache[(grid_shape, dx)]
 
         # Create a grid of points:
-        x_pts = np.linspace(0, grid_shape[0] * dx, grid_shape[0])
-        y_pts = np.linspace(0, grid_shape[1] * dx, grid_shape[1])
+        x_pts = (np.arange(0, grid_shape[0]) + .5) * dx  # center of the cells
+        y_pts = (np.arange(0, grid_shape[1]) + .5) * dx  # center of the cells
         x_pts, y_pts = np.meshgrid(x_pts, y_pts)
-        test_points = np.stack((x_pts.flatten(), y_pts.flatten()), axis=-1) 
-        
+        test_points = np.stack((x_pts, y_pts), axis=-1)  # shape (h, w, 2)
+        self._test_point_cache[(grid_shape, dx)] = test_points  # cache the points
+
+        mask = np.ones(test_points.shape[0:2], dtype=np.uint8)  # mask for the test points
+
+        return test_points, mask
 
     def render_border(self, grid_shape, dx):
         """
         Render the border of the solid as a binary image (0/1) in the grid defined by x_pts and y_pts.
         (Typically, the cell centerpoints)
 
-        Return an image that is 1 everywhere except the border, which is 0.
+        Return an image that is +1 outside, -1 inside, and 0 on the border.
 
         :param grid_shape: shape of the grid (width, height).
         :param dx: size of a pixel in the real world (in meters).
         :return: binary image of the solid (size h x w).   All cells through which the border passes are 0.
         """
-        pts_moved = self.points + self.origin  # move points to the global coordinate system
+        tp, blank_mask = self._get_test_points(grid_shape, dx)  # get the test points for the grid
+
+        shape_pts_moved = self.points + self.origin  # move points to the global coordinate system
         # Scale points up to the grid size (pixel/integers coords):
-        pts = ((pts_moved) / dx - .5) * _PREC_MUL  # scale & center points to pixel coordinates
-        pts = pts.astype(np.int32)
-        # Create a mask for the solid:
-        mask = np.ones(grid_shape, dtype=np.uint8)
-        cv2.polylines(mask, [pts], isClosed=True, color=0, thickness=1, shift=_PREC_BITS, lineType=cv2.LINE_4)
-        mask = mask.astype(np.float32)  
+        # scale & center points to pixel coordinates
+        shape_pts = (((shape_pts_moved) / dx - .5) * _PREC_MUL).astype(np.int32)
+        area_mask = 1 - 2 * self.is_inside(tp)  # mark interior and exterior points first, then border
+        cv2.polylines(area_mask, [shape_pts], isClosed=True, color=0, thickness=1, shift=_PREC_BITS)
 
-        # mark interior points with a -1:
-        inside = np
+        return area_mask
 
-    def plot(self, ax, animate=False):
+    def plot(self, ax, animate=False, line_color=None):
         """
         Plot the solid on the given axes.
         :param ax : axes to plot on.
@@ -99,13 +103,16 @@ class Solid(ABC):
         pts = pts.reshape((-1, 1, 2))
         last_pt = pts[0, 0, :].reshape(1, 1, 2)
 
+        line_color = self._mpl_color if line_color is None else line_color
+
         pts = np.concatenate((pts, last_pt), axis=0)  # close the polygon
         if self._artists.get('solid') is None or not animate:
-            self._artists['border'] = ax.plot(pts[:, 0, 0], pts[:, 0, 1], color=self._mpl_color, linewidth=1)
+            self._artists['border'] = ax.plot(pts[:, 0, 0], pts[:, 0, 1], color=line_color, linewidth=1)
             self._artists['solid'] = ax.fill(pts[:, 0, 0], pts[:, 0, 1], color=self._mpl_color, alpha=0.5)
 
         else:
             self._artists['border'].set_data(pts[:, 0, 0], pts[:, 0, 1])
+            self._artists['border'][0].set_color(line_color)
             self._artists['solid'].set_xy(pts[:, 0, :])
 
     def is_inside(self, points):
@@ -114,19 +121,19 @@ class Solid(ABC):
         """
         line_points = np.concatenate((self.points, self.points[0:1]), axis=0)  # close the polygon
 
-        w_num = np.zeros(points.shape[0], dtype=np.int32)  # winding number for each point
+        w_num = np.zeros(points.shape[:-1], dtype=np.int32)  # winding number for each point
         test_points = points - self.origin  # shift points to the origin
         for line_ind in range(len(self.points)):
 
-            line_start = line_points[line_ind, :]
-            line_end = line_points[line_ind + 1, :]
+            line_start = line_points[line_ind, :].reshape(1, 2)
+            line_end = line_points[line_ind + 1, :].reshape(1, 2)
 
             # Compute the cross product with this segment & a line from the start of the segment to the test point:
             cross_prod = np.cross(line_end - line_start, test_points - line_start)
-            left_edge_pts = (cross_prod > 0) & (line_start[1] < test_points[:, 1]) & (
-                line_end[1] > test_points[:, 1])
-            right_edge_pts = (cross_prod < 0) & (line_start[1] > test_points[:, 1]) & (
-                line_end[1] < test_points[:, 1])
+            left_edge_pts = (cross_prod > 0) & (line_start[0, 1] < test_points[..., 1]) & (
+                line_end[0, 1] > test_points[..., 1])
+            right_edge_pts = (cross_prod < 0) & (line_start[0, 1] > test_points[..., 1]) & (
+                line_end[0, 1] < test_points[..., 1])
             wn_num_inc = left_edge_pts | right_edge_pts  # increment winding number
             w_num[wn_num_inc] += 1
 
@@ -154,15 +161,43 @@ def plot_grid(ax, n_cells, dx, line_width=1):
     ax.set_ylim(0, n_cells[1] * dx)
 
 
+def test_borders():
+    n_pts = 30
+    def _test(ax):
+        points = np.random.rand(3*2).reshape(-1, 2)  # np.array([[.4, 0], [1, .14], [.3, 1], [0, 1]]) *.8
+        points[2,:] = points[0, :] +0.1
+        points = points.reshape((-1, 1, 2))
+        origin = (.1, .1)
+        solid = Solid(points, origin, velocity=(0, 0), color=OBJECT_COLORS[0])
+
+        grid_size = (n_pts, n_pts)
+        dx = 1/n_pts  # size of a pixel in the real world (in meters).
+
+        # Render the solid:
+        img = solid.render_border(grid_size, dx)
+        ax.imshow(img, cmap='gray', origin='lower')
+        # add colorbar:
+        plt.colorbar(ax.imshow(img, cmap='gray', origin='lower'))
+    fig, axes = plt.subplots(2, 4, figsize=(12, 9))
+    axes = axes.flatten()
+    for i, ax in enumerate(axes):
+        ax.set_facecolor(rgb_int_to_float(BKG_COLOR))
+        ax.set_aspect('equal')
+        _test(ax)
+    plt.show()
+
+
 def test_solid():
     """
     Test the Solid class.
     """
     n_cells = 50
-
+    rand_state = np.random.RandomState(0)
     def plot_test(ax):
         # Create a solid:
-        points = np.random.rand(3*2).reshape(-1, 2)  # np.array([[.4, 0], [1, .14], [.3, 1], [0, 1]]) *.8
+        points = rand_state.rand(3*2).reshape(-1, 2)  # np.array([[.4, 0], [1, .14], [.3, 1], [0, 1]]) *.8
+        # points[2,:] = points[0, :] +0.01  # make it skinny
+
         points = points.reshape((-1, 1, 2))
         origin = (.1, .1)
         solid = Solid(points, origin, velocity=(0, 0), color=OBJECT_COLORS[0])
@@ -178,9 +213,9 @@ def test_solid():
 
         # Plot the solid:
         extent = (0, grid_size[0] * dx, 0, grid_size[1] * dx)  # extent of the image in the real world
-        ax.imshow(img, cmap='gray', origin='lower', extent=extent)
+        ax.imshow(img, cmap='rainbow', origin='lower', extent=extent)
         plot_grid(ax, grid_size, dx, line_width=0.5)
-        solid.plot(ax)
+        solid.plot(ax, line_color=rgb_int_to_float((30, 255, 50)))
 
         n_test = 0
         if n_test > 0:
@@ -196,13 +231,13 @@ def test_solid():
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
 
-    fig, axes = plt.subplots(3, 3, figsize=(10, 10))
+    fig, axes = plt.subplots(3, 6, figsize=(10, 10))
     axes = axes.flatten()
     for i, ax in enumerate(axes):
         ax.set_facecolor(rgb_int_to_float(BKG_COLOR))
         ax.set_aspect('equal')
         plot_test(ax)
-
+    plt.tight_layout()
     plt.show()
 
 
@@ -271,8 +306,7 @@ class ObjectSet(object):
         self._vel_y.fill(0)
 
         # Compute the signed distance function and regions for each solid:
-        import ipdb
-        ipdb.set_trace()
+
         for i, solid in enumerate(self._solids):
             # Compute the signed distance function for this solid:
             border = solid.render_border(self.n_cells, self.dx)  # render the solid as a binary image
@@ -368,3 +402,4 @@ def test_solids():
 if __name__ == '__main__':
     test_solid()
     test_solids()
+    
