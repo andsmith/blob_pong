@@ -13,8 +13,10 @@ import cv2  # for rendering
 from abc import ABC, abstractmethod
 from colors import LINE_COLOR, BKG_COLOR, FLUID_COLOR, OBJECT_COLORS
 import matplotlib.pyplot as plt
-
-
+import matplotlib.colors as colors
+import numpy as np
+import time
+import logging
 def rgb_int_to_float(rgb_int):
     """
     Convert an RGB integer to a float in the range [0, 1].
@@ -24,8 +26,10 @@ def rgb_int_to_float(rgb_int):
     return (rgb_int[0] / 255.0, rgb_int[1] / 255.0, rgb_int[2] / 255.0)
 
 
-_PREC_BITS = 5  # precision bits for line drawing
+_PREC_BITS = 3  # precision bits for line drawing
 _PREC_MUL = 2 ** _PREC_BITS  # precision multiplier
+
+from loop_timing.loop_profiler import LoopPerfTimer as LPT
 
 
 class Solid(ABC):
@@ -50,6 +54,37 @@ class Solid(ABC):
 
         self._test_point_cache = {}  # index by (grid_shape, dx)
 
+    @staticmethod
+    def random(n_pts, r_max=0.25):
+        """
+        Generate a random polygon with n_pts points.
+        :param n_pts: number of points in the polygon.
+        :param r_max: maximum radius of the polygon.
+        :return: random polygon as a list of points.
+        """
+        
+        angles = np.linspace(0, 2 * np.pi, int(n_pts), endpoint=False) + np.random.rand(n_pts) * 2 * np.pi / n_pts
+        r = np.random.rand(n_pts) * r_max
+        pts = np.stack((r * np.cos(angles), r * np.sin(angles)), axis=-1)
+        x_max, x_min, = np.max(pts[:, 0]), np.min(pts[:, 0])
+        y_max, y_min = np.max(pts[:, 1]), np.min(pts[:, 1])
+        
+        x_offset = np.random.rand() * (1 - (x_max - x_min)) - x_min
+        y_offset = np.random.rand() * (1 - (y_max - y_min)) - y_min
+
+        pts_moved = pts + np.array([x_offset, y_offset])  # move the points to the origin
+        #if np.any(pts_moved<0) or np.any(pts_moved>1):
+        #    import ipdb; ipdb.set_trace()
+
+        return Solid(pts, (x_offset, y_offset), velocity=(0, 0), color=OBJECT_COLORS[np.random.randint(0, len(OBJECT_COLORS))])
+    
+    def move(self, dx):
+        """
+        Move the solid by dx, dy.
+        :param dx: x,y offset to move the solid by.
+        """
+        self.origin += dx  # move the solid by dx, dy
+
     def _get_test_points(self, grid_shape, dx):
         """
         Get the test points for interior/exterior testing.
@@ -65,12 +100,13 @@ class Solid(ABC):
         y_pts = (np.arange(0, grid_shape[1]) + .5) * dx  # center of the cells
         x_pts, y_pts = np.meshgrid(x_pts, y_pts)
         test_points = np.stack((x_pts, y_pts), axis=-1)  # shape (h, w, 2)
-        self._test_point_cache[(grid_shape, dx)] = test_points  # cache the points
-
         mask = np.ones(test_points.shape[0:2], dtype=np.uint8)  # mask for the test points
 
-        return test_points, mask
+        self._test_point_cache[(grid_shape, dx)] = test_points, mask  # cache the points
 
+
+        return test_points, mask
+    @LPT.time_function
     def render_border(self, grid_shape, dx):
         """
         Render the border of the solid as a binary image (0/1) in the grid defined by x_pts and y_pts.
@@ -88,10 +124,32 @@ class Solid(ABC):
         # Scale points up to the grid size (pixel/integers coords):
         # scale & center points to pixel coordinates
         shape_pts = (((shape_pts_moved) / dx - .5) * _PREC_MUL).astype(np.int32)
-        area_mask = 1 - 2 * self.is_inside(tp)  # mark interior and exterior points first, then border
+
+        # mark interior and exterior points -1, +1 respectively:
+        area_mask = 1 - 2 * self.is_inside(tp)  
+        # Mark border points as 0:
         cv2.polylines(area_mask, [shape_pts], isClosed=True, color=0, thickness=1, shift=_PREC_BITS)
 
-        return area_mask
+        
+        fast_area_mask = blank_mask.astype(np.int32)
+        cv2.fillPoly(fast_area_mask, [shape_pts], -1, shift=_PREC_BITS)  # fill the polygon with 1s
+        cv2.polylines(fast_area_mask, [shape_pts], isClosed=True, color=0, thickness=1, shift=_PREC_BITS)
+
+
+        if False:# np.any(np.abs(fast_area_mask - area_mask) > 1e-10):
+            plt.show()
+            plt.subplot(2,2,1)
+            plt.imshow(area_mask, cmap='gray'); plt.colorbar()
+            plt.subplot(2,2,2)
+            plt.imshow(fast_area_mask, cmap='gray'); plt.colorbar()
+            plt.subplot(2,2,3)
+            plt.imshow(self.is_inside(tp), cmap='gray'); plt.colorbar()
+
+            plt.subplot(2,2,4)
+            plt.imshow(fast_area_mask- area_mask, cmap='gray'); plt.colorbar()
+            plt.show()
+
+        return area_mask#fast_area_mask
 
     def plot(self, ax, animate=False, line_color=None):
         """
@@ -114,7 +172,7 @@ class Solid(ABC):
             self._artists['border'].set_data(pts[:, 0, 0], pts[:, 0, 1])
             self._artists['border'][0].set_color(line_color)
             self._artists['solid'].set_xy(pts[:, 0, :])
-
+    @LPT.time_function
     def is_inside(self, points):
         """
         winding number test.
@@ -138,7 +196,19 @@ class Solid(ABC):
             w_num[wn_num_inc] += 1
 
         return np.mod(w_num, 2) == 1  # odd winding number means inside
-
+    
+def test_random_solid():
+    # make 10 random solids and plot them together.
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    solids = []
+    for _ in range(2):
+        solid = Solid.random(10,r_max=.36)
+        solids.append(solid)
+        solid.plot(ax, animate=False)
+    #ax.set_xlim(0, 1)
+    #ax.set_ylim(0, 1)
+    ax.set_aspect('equal')
+    plt.show()
 
 def plot_grid(ax, n_cells, dx, line_width=1):
     """
@@ -157,8 +227,8 @@ def plot_grid(ax, n_cells, dx, line_width=1):
         ax.axhline(y=y, color=LINE_COLOR, linewidth=line_width)
 
     # Set the axis limits:
-    ax.set_xlim(0, n_cells[0] * dx)
-    ax.set_ylim(0, n_cells[1] * dx)
+    #ax.set_xlim(0, n_cells[0] * dx)
+    #ax.set_ylim(0, n_cells[1] * dx)
 
 
 def test_borders():
@@ -231,7 +301,7 @@ def test_solid():
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
 
-    fig, axes = plt.subplots(3, 6, figsize=(10, 10))
+    fig, axes = plt.subplots(3, 5, figsize=(10, 10))
     axes = axes.flatten()
     for i, ax in enumerate(axes):
         ax.set_facecolor(rgb_int_to_float(BKG_COLOR))
@@ -269,7 +339,7 @@ class ObjectSet(object):
             'regions': None,
             'vel': None,
         }
-
+        self._colorbars = []
     def _init_objects(self):
         """
         Init list of objects.
@@ -281,8 +351,9 @@ class ObjectSet(object):
         # add walls as an "inverse" solid.
         border_zeros = np.zeros((self.n_cells[1], self.n_cells[0]), dtype=np.float32)   # zero at the border
         border_zeros[1:-1, 1:-1] = 1  # 1 everywhere else
-        dists = skfmm.distance(border_zeros, dx=self.dx, order=2)  # signed distance function
-        self._dists = -dists  # inverse for the walls
+        dists = self._march(border_zeros, self.dx)  # march the signed distance function to the border of the solid
+        self._dists = dists  # keep positive for walls, despite being in the interior.
+        print(np.min(self._dists), np.max(self._dists))
 
     def _init_grids(self):
         # Signed distances:  self._dist[]
@@ -296,6 +367,20 @@ class ObjectSet(object):
         # Regions:
         self._regions = np.zeros((self.n_cells[1], self.n_cells[0]), dtype=np.int32)
 
+    @LPT.time_function
+    def _march(self, border_mask, dx, order=1, narrow=0.0):
+        """
+        March the signed distance function to the border of the solid.
+        :param border_mask: mask of the solid (0/1).
+        :param dx: size of a pixel in the real world (in meters).
+        :param order: order of the finite difference scheme.
+        :return: signed distance function.
+        """
+        # Compute the signed distance function:
+        s_dist = skfmm.distance(border_mask, dx=dx, order=order, narrow=narrow)
+        return s_dist
+    
+    @LPT.time_function
     def _refresh_dists(self):
         """
         Recompute the signed distance function and the regions for all solids.
@@ -310,8 +395,18 @@ class ObjectSet(object):
         for i, solid in enumerate(self._solids):
             # Compute the signed distance function for this solid:
             border = solid.render_border(self.n_cells, self.dx)  # render the solid as a binary image
-            s_dist = skfmm.distance(border, dx=self.dx, order=2)
-            obj_mask = s_dist < dists  # mask for region of influence of this solid
+            try:
+                s_dist = self._march(border, self.dx,narrow=0.0)#self.dx*5.0)  # march the signed distance function to the border of the solid
+            except Exception as e:
+                fig, ax = plt.subplots(1,2)
+                solid.plot(ax[0], animate=False)
+                plt.colorbar(ax[1].imshow(border, cmap='gray'))
+                ax[1].set_title('Error in skfmm.distance: ' + str(e))
+                plt.show()
+            if isinstance(s_dist, np.ma.MaskedArray):
+                obj_mask = (~s_dist.mask) & (s_dist<dists)
+            else:
+                obj_mask = s_dist < dists  # mask for region of influence of this solid
             self._regions[obj_mask] = i
             dists[obj_mask] = s_dist[obj_mask]
 
@@ -328,6 +423,7 @@ class ObjectSet(object):
         Add a solid to the set of solids.
         solid: Solid object to add.
         """
+
         self._solids.append(solid)
         self._refresh_dists()
 
@@ -342,16 +438,27 @@ class ObjectSet(object):
         extent = (0, self.n_cells[0] * self.dx, 0, self.n_cells[1] * self.dx)  # extent of the image in the real world
         print("Plotting state in extent", extent)
         if self._artists['dist'] is None or not animate:
-            self._artists['dist'] = axes[0].imshow(self._dists, cmap='gray', origin='lower', extent=extent)
+            cmap = plt.cm.seismic
+            norm = colors.TwoSlopeNorm(vcenter=0)
+            self._artists['dist'] = axes[0].imshow(self._dists, cmap='seismic', origin='lower', extent=extent, norm=norm)
             axes[0].set_title('Signed distance function')
+            # Add colorbar:
+            cbar = plt.colorbar(self._artists['dist'], ax=axes[0])
+            cbar.set_label('Distance to nearest solid')
+
 
         else:
             self._artists['dist'].set_array(self._dists)
+            # update colorbar:
+            cbar = self._colorbars[0]
+            cbar.update_normal(self._artists['dist'])
+            cbar.draw_all()
+
 
         # Plot the region map:
         if self._artists['regions'] is None or not animate:
-            self._artists['regions'] = axes[1].imshow(self._regions, cmap='gray', origin='lower', extent=extent)
-            axes[1].set_title('Region map')
+            self._artists['regions'] = axes[1].imshow(self._regions, cmap='prism', origin='lower', extent=extent)
+            axes[1].set_title('Region map & objects')
         else:
             self._artists['regions'].set_array(self._regions)
 
@@ -365,22 +472,22 @@ class ObjectSet(object):
         # Plot the solids:
         for solid in self._solids:
             print("Plotting solid")
-            for ax in axes:
-                solid.plot(ax, animate=animate)
+            #for ax in axes:
+            solid.plot(axes[1], animate=animate)
             # ax.set_facecolor(rgb_int_to_float(BKG_COLOR))
             # ax.set_aspect('equal')
-            # plot_grid(ax, self.n_cells, self.dx, line_width=0.5)
-            # ax.set_xlim(0, self.n_cells[0] * self.dx)
-            # ax.set_ylim(0, self.n_cells[1] * self.dx)
+            plot_grid(axes[1], self.n_cells, self.dx, line_width=0.5)
+            axes[1].set_xlim(0, self.n_cells[0] * self.dx)
+            axes[1].set_ylim(0, self.n_cells[1] * self.dx)
             # ax.set_xticks([])
 
 
-def test_solids():
+def test_solid_speed():
     """
     Test the solids class.
     """
     # Create a set of solids:
-    n_cells = 20
+    n_cells = 100
     grid_size = (n_cells, n_cells)
     dx = 1.0/n_cells
     solids = ObjectSet(grid_size, dx)
@@ -388,18 +495,38 @@ def test_solids():
     # Create a rect in the middle:
     points = np.array([[0, 0], [1, 0], [1, 1], [0, 1]]) * .3
     points = points.reshape((-1, 1, 2))
-    origin = (.2, .558)
-    solid = Solid(points, origin, velocity=(0, 0), color=OBJECT_COLORS[0])
+    #origin = (.2, .558)
+    #solid = Solid(points, origin, velocity=(0, 0), color=OBJECT_COLORS[0])
 
-    fig, axes = plt.subplots(2, 2)
-    solids.plot_state(axes[0, :])
+    solid = Solid.random(10, r_max=.44)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6),sharex=True, sharey=True)
 
+    solids.plot_state(axes[0,:])
     solids.add_solid(solid)
-    solids.plot_state(axes[1, :])
+    solids.plot_state(axes[1,:])
     plt.show()
 
 
+    fig, axes = plt.subplots(2, 2, figsize=(10, 10),sharex=True, sharey=True)
+    solids.plot_state(axes[0, :])
+
+    # show distance and regions:
+    for _ in range(3):
+        shape = Solid.random(10, r_max=.36)
+        solids.add_solid(shape)
+    solids.plot_state(axes[1, :], animate=False)
+    plt.show()
+
+    # Time the refresh.
+    LPT.reset(enable=True, display_after=10, burn_in = 5)
+    for _ in range (30):
+        LPT.mark_loop_start()
+        solids._refresh_dists()
+
+
 if __name__ == '__main__':
-    test_solid()
-    test_solids()
-    
+    #test_solid()
+    logging.basicConfig(level=logging.INFO)
+    test_solid_speed()
+    #import ipdb; ipdb.set_trace()
+    #test_random_solid()

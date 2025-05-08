@@ -237,10 +237,21 @@ class Simulator(object):
         self.set_d_max(density_max)
 
 
-def run(plot=True, matplotlib=True):
+def run(plot=True, matplotlib=True, show_pressure=False, n_cells = 50):  
+    fluid_cell_mult = (np.ceil(200/n_cells)).astype(int)  # Number of fluid cells per velocity cell.
+
+    logging.info("")
+    logging.info("Starting fluid simulation with args:")
+    logging.info(f"  plot: {plot}")
+    logging.info(f"  matplotlib: {matplotlib}") 
+    logging.info(f"  show_pressure: {show_pressure}")
+    logging.info(f"  n_cells: {n_cells}")
+    logging.info(f"  fluid_cell_mult: {fluid_cell_mult}")
+
+
+
     size_m = (1.0, 1.0)
-    n_cells_x_vel = 10  # Number of velocity cells in the x direction
-    fluid_cell_mult = 10  # Number of fluid cells per velocity cell.
+    n_cells_x_vel = n_cells  # Number of velocity cells in the x direction
     sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
     sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
 
@@ -248,7 +259,7 @@ def run(plot=True, matplotlib=True):
 
     if plot:
         if matplotlib:
-            sim.animate(dt, wait=True, show_pressure=False)
+            sim.animate(dt, wait=True, show_pressure=show_pressure)
         else:
             sim.animate_cv2(dt, render_v_grid=False, render_f_grid=False)
     else:
@@ -271,4 +282,9 @@ def run(plot=True, matplotlib=True):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    run()
+    int_args = [int(arg) for arg in sys.argv[1:] if arg.isdigit()]
+    plot = True if (not 'no_plot' in sys.argv) else False
+    matplotlib = True if ('matplotlib' in sys.argv) else False
+    show_pressure = True if ('pressure' in sys.argv) else False
+    n_cells = int_args[0] if len(int_args) > 0 else 60
+    run(plot=plot, matplotlib=matplotlib, show_pressure=show_pressure, n_cells=n_cells)
