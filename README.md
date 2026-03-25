@@ -46,16 +46,24 @@ The fluid density resolution is 10x that.
 
 #### Roadmap / To Do:
 
-For V1 (gas phase only):
-  * Interaction with static objects other than 4 walls.
-  * Interaction with moving objects.
-  * Multi-colored smoke.
-  * Sources / Sinks / Fans
+For Version 0.1 (gas phase only):
+  * Multi-colored smoke/liquid  (advecting 2 fields for smoke, can blend).
 
-For V2:
   * liquid phase
   * gravity
-  * lquid sources / sinks
+
+For Version 0.2:
+  * gaseous sources / sinks / fans (start a fire)
+  * liquid sources / sinks / pumps (pour some water)
+
+For Version 0.3:
+  * Interaction with static rigid bodies (arbitrary shapes) other than walls.
+
+For Version 0.4:
+  * Interaction with dynamic rigid bodies (arbitrary shapes).
+    * Mouse drags/rotates an I-shape (fan) to waft smoke, or
+    * Mouse drags/rotates a U-shape (bucket) to scoop/pour liquid.  
+
 
 Technical:
   * Move interpolation to jax
