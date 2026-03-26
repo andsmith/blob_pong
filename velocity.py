@@ -106,6 +106,33 @@ class VelocityField(InterpField):
 
         # TODO:  enforce free/no slip for objects
 
+    def gravity_uniform(self, dt, g=9.81):
+        """
+        Apply uniform downward gravitational acceleration to all interior faces.
+        Used for liquid simulation (no density weighting).
+        :param dt: time step.
+        :param g: gravitational acceleration (m/s²).
+        """
+        self.v_vel[1:-1, :] -= g * dt
+        self.mark_dirty()
+
+    def gravity_liquid(self, dt, liquid_field, g=9.81):
+        """
+        Apply downward gravity only to vertical faces adjacent to at least one liquid cell.
+        Avoids spurious divergence at liquid-air interfaces caused by accelerating air faces
+        that have not yet been extrapolated.
+
+        v_vel[r, c] sits between cell (r-1, c) [below] and cell (r, c) [above].
+        Interior faces r=1..n_y-1 correspond to v_vel[1:-1, :].
+        """
+        liquid = liquid_field.is_liquid_at(self.n_cells)  # (n_y, n_x)
+        # For interior face r, adjacent cells are liquid[r-1, c] (below) and liquid[r, c] (above)
+        below = liquid[:-1, :]   # (n_y-1, n_x) — cells below each interior face
+        above = liquid[1:, :]    # (n_y-1, n_x) — cells above each interior face
+        face_mask = below | above
+        self.v_vel[1:-1, :] -= g * dt * face_mask
+        self.mark_dirty()
+
     def gravity(self, dt, fluid, rel_density=100.0):
         """
         Add gravity to the velocity field in proportion to local interpolated fluid density.
@@ -233,6 +260,78 @@ class VelocityField(InterpField):
         # div = np.abs(div)  # take the absolute value of the divergence
         # div = np.max(div)
         # logging.info("Max cell divergence after projection: %f" % div)
+        self.finalize()
+
+    def extrapolate_into_air(self, liquid_field, n_layers=6):
+        """
+        Extend liquid-cell velocities outward into air cells so that the level-set
+        can be advected through a valid velocity field near the free surface.
+
+        Uses a simple BFS flood: each layer copies the nearest known velocity.
+
+        :param liquid_field: LiquidField whose is_liquid() mask defines the liquid region.
+        :param n_layers: number of cell layers to extrapolate outward.
+        """
+        from collections import deque
+
+        liquid = liquid_field.is_liquid_at(self.n_cells)   # (n_y, n_x) bool at vel-grid resolution
+        n_y_h, n_x_h = self.h_vel.shape    # (n_y, n_x+1)
+        n_y_v, n_x_v = self.v_vel.shape    # (n_y+1, n_x)
+
+        # --- Extrapolate h_vel (horizontal, at vertical faces) ---
+        # A face (r, c) is "liquid" if either cell (r, c-1) or (r, c) is liquid.
+        # We use a simple rule: face is known if any adjacent cell is liquid.
+        h_known = np.zeros((n_y_h, n_x_h), dtype=bool)
+        for r in range(n_y_h):
+            for c in range(n_x_h):
+                left_liq = (c > 0) and liquid[r, c - 1]
+                right_liq = (c < n_x_h - 1) and liquid[r, c]
+                h_known[r, c] = left_liq or right_liq
+        h_val = self.h_vel.copy()
+        queue = deque()
+        for r in range(n_y_h):
+            for c in range(n_x_h):
+                if h_known[r, c]:
+                    queue.append((r, c, 0))
+        visited_h = h_known.copy()
+        while queue:
+            r, c, depth = queue.popleft()
+            if depth >= n_layers:
+                continue
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < n_y_h and 0 <= nc < n_x_h and not visited_h[nr, nc]:
+                    visited_h[nr, nc] = True
+                    h_val[nr, nc] = h_val[r, c]
+                    queue.append((nr, nc, depth + 1))
+        self.h_vel = h_val
+
+        # --- Extrapolate v_vel (vertical, at horizontal faces) ---
+        v_known = np.zeros((n_y_v, n_x_v), dtype=bool)
+        for r in range(n_y_v):
+            for c in range(n_x_v):
+                below_liq = (r > 0) and liquid[r - 1, c]
+                above_liq = (r < n_y_v - 1) and liquid[r, c]
+                v_known[r, c] = below_liq or above_liq
+        v_val = self.v_vel.copy()
+        queue = deque()
+        for r in range(n_y_v):
+            for c in range(n_x_v):
+                if v_known[r, c]:
+                    queue.append((r, c, 0))
+        visited_v = v_known.copy()
+        while queue:
+            r, c, depth = queue.popleft()
+            if depth >= n_layers:
+                continue
+            for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < n_y_v and 0 <= nc < n_x_v and not visited_v[nr, nc]:
+                    visited_v[nr, nc] = True
+                    v_val[nr, nc] = v_val[r, c]
+                    queue.append((nr, nc, depth + 1))
+        self.v_vel = v_val
+
         self.finalize()
 
     def diffuse(self, dt, fluid=None):

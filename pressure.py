@@ -22,8 +22,6 @@ class PressureField(CenterScalarField):
         self.p_atm = p_atm
         self.unit = unit
         self.phase = phase  # 'gas' or 'liquid'
-        if phase == 'liquid':
-            raise NotImplementedError("Liquid phase not implemented yet.")
 
     def plot(self, ax, **kwargs):
         return super().plot(ax, title="Pressure Field", **kwargs)
@@ -108,7 +106,72 @@ class PressureField(CenterScalarField):
                     # B vector term:
 
         else:
-            raise NotImplementedError("Liquid phase not implemented yet.")
+            # ---- Liquid free-surface pressure solve ----
+            # Only solve in liquid cells (phi < 0).
+            # Cells adjacent to air get a Dirichlet p=0 condition on the air side
+            # (i.e. we simply omit the off-diagonal coupling to the air cell and do
+            # NOT reduce n_neighbors, so the diagonal reflects all 4 potential neighbours).
+
+            liquid_mask = v_const.is_liquid_at(self.n_cells)   # (n_y, n_x) bool at vel-grid resolution
+
+            # Build a mapping: (row, col) -> reduced index (liquid cells only)
+            n_y, n_x = self.n_cells[1], self.n_cells[0]
+            cell_to_idx = np.full((n_y, n_x), -1, dtype=np.int32)
+            liquid_cells = np.argwhere(liquid_mask)   # shape (N_liq, 2) as (row, col)
+            for k, (r, c) in enumerate(liquid_cells):
+                cell_to_idx[r, c] = k
+
+            n_liq = len(liquid_cells)
+            B_vals = np.zeros(n_liq, dtype=np.float64)
+
+            # GFM: need φ values at velocity-grid resolution to compute θ per face.
+            phi_coarse = v_const.phi_at(self.n_cells)   # (n_y, n_x) float32
+            THETA_MIN = 1.0   # θ=1 everywhere → simple free-surface stencil (1/dx²),
+                              # consistent with the standard velocity update in project()
+
+            for k, (row, col) in enumerate(liquid_cells):
+                cell_div = div[row, col]
+                B_vals[k] = -cell_div / dt
+
+                neighbors = [
+                    (row, col - 1),   # left
+                    (row, col + 1),   # right
+                    (row - 1, col),   # below
+                    (row + 1, col),   # above
+                ]
+
+                diag = 0.0
+                for (nr, nc) in neighbors:
+                    if 0 <= nr < n_y and 0 <= nc < n_x:
+                        if liquid_mask[nr, nc]:
+                            # liquid-liquid face: standard stencil
+                            nk = cell_to_idx[nr, nc]
+                            A_row_inds.append(k)
+                            A_col_inds.append(nk)
+                            A_vals.append(-1.0 / dx**2)
+                            diag += 1.0 / dx**2
+                        else:
+                            # liquid-air face (GFM): place p=0 at the φ=0 interface,
+                            # not at the air cell center.
+                            phi_liq = abs(float(phi_coarse[row, col]))
+                            phi_air = abs(float(phi_coarse[nr, nc]))
+                            denom = phi_liq + phi_air
+                            theta = max(phi_liq / denom, THETA_MIN) if denom > 0 else THETA_MIN
+                            diag += 1.0 / (theta * dx**2)
+                            # no off-diagonal: p=0 Dirichlet at interface
+                    # domain boundary (wall): no contribution — Neumann BC
+
+                A_row_inds.append(k)
+                A_col_inds.append(k)
+                A_vals.append(diag + reg)
+
+            if n_liq == 0:
+                self.values = np.zeros((self.n_cells[1], self.n_cells[0]), dtype=np.float32)
+                self.finalize()
+                return
+
+            A_size = n_liq
+
         # Create the sparse matrix A:
         A = csc_matrix((A_vals, (A_row_inds, A_col_inds)), shape=(A_size, A_size), dtype=np.float64)
 
@@ -118,14 +181,15 @@ class PressureField(CenterScalarField):
         p = solve(A, B)
         LPT.add_marker('solved linear system')
 
-        # Check the residual:
-        # B_hat = A.dot(p)
-        # residual = np.sqrt(np.mean((B_hat - B)**2))  # L2 norm of the residual.
-        # logging.info(f"Pressure projection residual RMSE: {residual:f}")
+        if phase == 'gas':
+            pressures = p.reshape(self.n_cells[1], self.n_cells[0])
+        else:
+            # Map reduced solution back to full grid; air cells get p=0 (atmospheric)
+            pressures = np.zeros((self.n_cells[1], self.n_cells[0]), dtype=np.float64)
+            for k, (row, col) in enumerate(liquid_cells):
+                pressures[row, col] = p[k]
 
-        # Set the pressure field to the negative solution since we are solving for -p:
-        pressures = p.reshape(self.n_cells[1], self.n_cells[0])
-        self.values = pressures
+        self.values = pressures.astype(np.float32)
         self.finalize()
 
 

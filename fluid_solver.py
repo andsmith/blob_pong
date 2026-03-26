@@ -4,14 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from velocity import VelocityField, VelocityConstraints
 from pressure import PressureField
-from fluid import SmokeField  # , LiquidField
+from fluid import SmokeField, LiquidField
 from util import scale_y
 import logging
 import time
 import cv2
 import sys
 from loop_timing.loop_profiler import LoopPerfTimer as LPT
-from colors import FLUID_COLOR, LINE_COLOR, BKG_COLOR
+from colors import FLUID_COLOR, LINE_COLOR, BKG_COLOR, FLUID2_COLOR
 
 class Simulator(object):
     """
@@ -26,12 +26,13 @@ class Simulator(object):
     (Future) For liquid, the fluid is represented by a signed distance function (level set).
     """
 
-    def __init__(self, size_m, n_cells_x_vel, fluid_cell_mult):
+    def __init__(self, size_m, n_cells_x_vel, fluid_cell_mult, fluid_type='smoke'):
         """
 
         :param size_m: The size of the simulation domain in meters (width, height).
         :param n_cells_x_vel: The number of cells in the x direction for the velocity field. (y is in proportion)
         :param fluid_cell_mult:  How many fluid cells per velocity cell. (must be integer >=1)
+        :param fluid_type: 'smoke' for gas simulation, 'liquid' for free-surface liquid simulation.
         """
 
         self._size, vel_grid_size, dx = scale_y(size_m, n_cells_x_vel)
@@ -40,11 +41,19 @@ class Simulator(object):
         self.f_grid_size = fluid_grid_size
         self.dx = dx
         self.f_dx = f_dx
+        self._fluid_type = fluid_type
         logging.info(f"Grid size: {vel_grid_size}, dx: {dx}")
         logging.info(f"Fluid grid size: {fluid_grid_size}, f_dx: {f_dx}")
-        self._vel = VelocityField(size_m, vel_grid_size).add_wind(np.array([1.0, 0.0]), h_min=0.333)
+        self._vel = VelocityField(size_m, vel_grid_size)#.add_wind(np.array([1.0, 0.0]), h_min=0.333)
         self._pressure = PressureField(size_m, vel_grid_size)
-        self._fluid = SmokeField(size_m, fluid_grid_size)  # value at x,y is density of smoke.
+        if fluid_type == 'smoke':
+            self._fluid = SmokeField(size_m, fluid_grid_size)   # density field for smoke 1
+            self._fluid2 = SmokeField(size_m, fluid_grid_size)  # density field for smoke 2
+        elif fluid_type == 'liquid':
+            self._fluid = LiquidField(size_m, fluid_grid_size)  # level-set φ at fluid (high) resolution
+            self._fluid2 = None
+        else:
+            raise ValueError(f"Unknown fluid_type '{fluid_type}'. Use 'smoke' or 'liquid'.")
         self._colorbar = None
         self._d_max = 0.0  # rendering this density, scale color to full saturation (clip if above)
         self._timing = {'frame_no': 0,
@@ -86,16 +95,30 @@ class Simulator(object):
             4. Pressure projection:  find the pressure field so the velocity field is divergence free.
           b) Advect the fluid for time dt using the new velocity field.
         """
+        if self._fluid_type == 'smoke':
+            self._tick_smoke(dt)
+        elif self._fluid_type == 'liquid':
+            self._tick_liquid(dt)
+
+    def _tick_smoke(self, dt):
         # a) Update velocity
         self._vel.advect(dt)
-        # self._vel.gravity(dt, self._fluid, rel_density=1.0)  # Gravity is a force acting on the fluid.
+        self._vel.gravity(dt, self._fluid, rel_density=1.0)  # buoyancy: heavy smoke sinks
         # self._vel.diffuse(dt)
-
-        # START HERE:
         self._pressure.set_incompressible(self._vel, None, dt)
         self._vel.project(self._pressure, dt)
+        # b) Move both smoke fields along the velocity field:
+        self._fluid.advect(self._vel, dt)
+        self._fluid2.advect(self._vel, dt)
 
-        # b) Move the fluid along the velocity field:
+    def _tick_liquid(self, dt):
+        # Standard operator-split order: advect → body forces → project → advect marker
+        self._vel.advect(dt)
+        self._vel.gravity_liquid(dt, self._fluid)   # gravity only on liquid-adjacent faces
+        # self._vel.diffuse(dt)
+        self._pressure.set_incompressible(self._vel, self._fluid, dt, phase='liquid')
+        self._vel.project(self._pressure, dt)
+        self._vel.extrapolate_into_air(self._fluid)
         self._fluid.advect(self._vel, dt)
 
     def _update_fps(self):
@@ -128,7 +151,11 @@ class Simulator(object):
             self.tick(dt)
 
             frame = blank.copy()
-            self._fluid.render(frame, self._d_max, bbox, FLUID_COLOR, BKG_COLOR)
+            if self._fluid_type == 'smoke':
+                self._fluid.render(frame, self._d_max, bbox, FLUID_COLOR, BKG_COLOR)
+                self._fluid2.render_additive(frame, self._d_max, bbox, FLUID2_COLOR)
+            elif self._fluid_type == 'liquid':
+                self._fluid.render(frame, bbox, FLUID_COLOR, BKG_COLOR)
             # self._vel.render(frame, bbox, line_color)
             if render_f_grid:
                 self._fluid.render_grid(frame, bbox, LINE_COLOR)
@@ -149,7 +176,9 @@ class Simulator(object):
             # Randomize the fluid density to create a more realistic initial condition.
             self._vel.randomize(scale=10.0)
         elif key in ['c', ord('c')]:
-            self.add_smoke(1.0)  # Add a smoke source at the center of the domain.
+            self.add_smoke(1.0)
+        elif key in ['x', ord('x')]:
+            self.add_smoke2(1.0)
         elif key in ['s', ord('s')]:
             if frame is not None:
                 cv2.imwrite("fluid.png", frame)
@@ -166,18 +195,19 @@ class Simulator(object):
 
         n_velocity_arrows = 20
         if show_pressure:
-            # import ipdb; ipdb.set_trace()
             img_artist = self._pressure.plot(ax, alpha=0.6, res=self.grid_size[0], cmap_name='hot')
             cbar_title = "Relative Pressure"
             print(np.mean(self._pressure.values), np.std(self._pressure.values))
+        elif self._fluid_type == 'liquid':
+            img_artist = self._pressure.plot(ax, alpha=0.8, res=self.grid_size[0], cmap_name='RdBu_r')
+            self._fluid.plot_isocontour(ax, res=self.f_grid_size[0])
+            cbar_title = "Pressure"
         else:
-            # use 'gray' for showing velocity faces
             img_artist = self._fluid.plot(ax, alpha=0.6, res=self.f_grid_size[0], cmap_name='hot')
             cbar_title = "Density"
         self._vel.plot_velocities(ax, show_faces=show_pressure, show_field=not show_pressure, res=n_velocity_arrows)
 
         if self._colorbar is None:
-            # Create colorbar only onnce
             self._colorbar = plt.colorbar(img_artist, ax=ax, shrink=0.8)
             self._colorbar.set_label(cbar_title)
         else:
@@ -232,28 +262,40 @@ class Simulator(object):
         self._d_max = d_max
 
     def add_smoke(self, density_max=1.0):
-        self._fluid.add_square((0.5, 0.5), 0.26, density_max)  # Add a smoke source at the center of the domain.
-        # self._fluid.randomize(scale=3.0)  # Randomize the fluid density to create a more realistic initial condition.
+        self._fluid.add_square((0.333, 0.5), 0.333, density_max)
         self.set_d_max(density_max)
 
+    def add_smoke2(self, density_max=1.0):
+        if self._fluid2 is not None:
+            self._fluid2.add_square((0.667, 0.5), 0.333, density_max)
+        self.set_d_max(density_max)
 
-def run(plot=True, matplotlib=True, show_pressure=False, n_cells = 50):  
+    def add_liquid_pool(self, center=(0.5, 0.7), radius=0.2):
+        """Initialize a circular pool of liquid."""
+        if isinstance(self._fluid, LiquidField):
+            self._fluid.add_pool(center, radius)
+
+
+def run(plot=True, matplotlib=True, show_pressure=False, n_cells=50, fluid_type='smoke'):
     fluid_cell_mult = (np.ceil(200/n_cells)).astype(int)  # Number of fluid cells per velocity cell.
 
     logging.info("")
     logging.info("Starting fluid simulation with args:")
     logging.info(f"  plot: {plot}")
-    logging.info(f"  matplotlib: {matplotlib}") 
+    logging.info(f"  matplotlib: {matplotlib}")
     logging.info(f"  show_pressure: {show_pressure}")
     logging.info(f"  n_cells: {n_cells}")
     logging.info(f"  fluid_cell_mult: {fluid_cell_mult}")
-
-
+    logging.info(f"  fluid_type: {fluid_type}")
 
     size_m = (1.0, 1.0)
-    n_cells_x_vel = n_cells  # Number of velocity cells in the x direction
-    sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult)
-    sim.add_smoke(1.0)  # Add a smoke source at the center of the domain.
+    n_cells_x_vel = n_cells
+    sim = Simulator(size_m, n_cells_x_vel, fluid_cell_mult, fluid_type=fluid_type)
+    if fluid_type == 'smoke':
+        sim.add_smoke(1.0)
+        sim.add_smoke2(1.0)
+    elif fluid_type == 'liquid':
+        sim.add_liquid_pool(center=(0.5, 0.75), radius=0.2)
 
     dt = 0.01  # Time step for the simulation.
 
@@ -286,5 +328,6 @@ if __name__ == "__main__":
     plot = True if (not 'no_plot' in sys.argv) else False
     matplotlib = True if ('matplotlib' in sys.argv) else False
     show_pressure = True if ('pressure' in sys.argv) else False
+    fluid_type = 'liquid' if ('liquid' in sys.argv) else 'smoke'
     n_cells = int_args[0] if len(int_args) > 0 else 60
-    run(plot=plot, matplotlib=matplotlib, show_pressure=show_pressure, n_cells=n_cells)
+    run(plot=plot, matplotlib=matplotlib, show_pressure=show_pressure, n_cells=n_cells, fluid_type=fluid_type)
