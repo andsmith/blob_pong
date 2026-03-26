@@ -43,29 +43,48 @@ Right now, it's just smoke being wafted through a random, static velocity field 
 The vector field is interpolated over a random 15-cell velocity grid.  
 The fluid density resolution is 10x that. 
 
+# Roadmap 
 
-#### Roadmap / To Do:
+### Done:
 
 For Version 0.1 (gas phase only):
   * Multi-colored smoke/liquid  (advecting 2 fields for smoke, can blend).
-
   * liquid phase
   * gravity
 
+### To Do:
+
+#### Smoke:
+
 For Version 0.2:
-  * gaseous sources / sinks / fans (start a fire)
-  * liquid sources / sinks / pumps (pour some water)
+  * smoke  Interaction with static rigid bodies (arbitrary shapes) other than walls.
+  * demo:  Beam 1-cell wide, with 4-cell gap in middle, vertically oriented in middle of domain.
 
 For Version 0.3:
-  * Interaction with static rigid bodies (arbitrary shapes) other than walls.
+  * smoke Interaction with dynamic rigid bodies (arbitrary shapes).
+  * Demo:  Mouse drags/rotates an I-shape (fan) to waft smoke interactively.
 
 For Version 0.4:
-  * Interaction with dynamic rigid bodies (arbitrary shapes).
-    * Mouse drags/rotates an I-shape (fan) to waft smoke, or
-    * Mouse drags/rotates a U-shape (bucket) to scoop/pour liquid.  
+  * Gaseous sources/ sinks (blow air to push smoke around, vacuum it up.)
 
+For Version 0.5:
+  * Smoke sources  (Generate smoke)
 
-Technical:
+#### Liquid:
+
+For Version 0.6:
+  * liquid  Interaction with static rigid bodies (arbitrary shapes) other than walls.
+  * demo:  Beam 1-cell wide, horizontally oriented sticking out out left side of domain 2/3rds of the way down.
+
+For Version 0.6:
+  * liquid Interaction with dynamic rigid bodies (arbitrary shapes).   
+  * Mouse drags/rotates a U-shape (bucket) to scoop/pour liquid.  
+
+For Version 0.8:
+  * liquid sources / sinks / pumps (pour some water)
+
+#### Technical ideas to explore:
+
   * Move interpolation to jax
   * move $A$ matrix and $b$ vector construction to c/cython for speed.
   * Synchronize simulation speed with real-time.
